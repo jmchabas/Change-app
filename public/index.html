@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LifeOS</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --card: #12121a;
+      --border: #1e1e2e;
+      --text: #e0e0e0;
+      --muted: #6b7280;
+      --green: #22c55e;
+      --red: #ef4444;
+      --amber: #f59e0b;
+      --blue: #3b82f6;
+      --purple: #a855f7;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 1.5rem;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: 0.05em; }
+    header .date { color: var(--muted); font-size: 0.85rem; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+    }
+    .card h2 {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 0.75rem;
+    }
+    .big-score {
+      font-size: 3.5rem;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .big-score span { font-size: 1.5rem; color: var(--muted); }
+    .score-color-7 { color: var(--green); }
+    .score-color-6 { color: var(--green); }
+    .score-color-5 { color: #86efac; }
+    .score-color-4 { color: var(--amber); }
+    .score-color-3 { color: var(--amber); }
+    .score-color-2 { color: var(--red); }
+    .score-color-1 { color: var(--red); }
+    .score-color-0 { color: var(--red); }
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+    .metric {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot.on { background: var(--green); }
+    .dot.off { background: #374151; }
+    .sub-scores {
+      display: flex;
+      gap: 1.5rem;
+      margin-top: 1rem;
+    }
+    .sub-score { font-size: 0.85rem; }
+    .sub-score strong { color: var(--blue); }
+    .drift-list { list-style: none; }
+    .drift-list li {
+      padding: 0.4rem 0;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .drift-badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .drift-badge.sleep { background: #7c3aed33; color: #a78bfa; }
+    .drift-badge.food { background: #f59e0b33; color: #fbbf24; }
+    .drift-badge.work { background: #3b82f633; color: #60a5fa; }
+    .drift-badge.social { background: #22c55e33; color: #4ade80; }
+    .no-drift { color: var(--green); font-size: 0.85rem; }
+    .trend-label {
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+    .trend-avg {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-top: 0.25rem;
+    }
+    .chart-wrap {
+      grid-column: 1 / -1;
+      height: 220px;
+    }
+    .chart-wrap canvas { width: 100% !important; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+    th {
+      text-align: left;
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 0.5rem 0.4rem;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 0.5rem 0.4rem;
+      border-bottom: 1px solid #1a1a2a;
+    }
+    .check { color: var(--green); }
+    .cross { color: #374151; }
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--muted);
+    }
+    .empty-state h2 {
+      font-size: 1rem;
+      color: var(--text);
+      margin-bottom: 0.5rem;
+      text-transform: none;
+      letter-spacing: normal;
+    }
+    @media (max-width: 640px) {
+      body { padding: 1rem; }
+      .big-score { font-size: 2.5rem; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>LIFEOS</h1>
+    <span class="date" id="header-date"></span>
+  </header>
+
+  <div id="app">
+    <div class="empty-state">
+      <h2>Loading...</h2>
+    </div>
+  </div>
+
+  <script>
+    const $ = s => document.querySelector(s);
+    const yn = v => v ? '<span class="check">✓</span>' : '<span class="cross">·</span>';
+
+    async function load() {
+      const [todayRes, weekRes] = await Promise.all([
+        fetch('/api/today').then(r => r.json()),
+        fetch('/api/week').then(r => r.json()),
+      ]);
+
+      const today = todayRes.log;
+      const { logs, trend, drift, avg } = weekRes;
+
+      $('#header-date').textContent = todayRes.date;
+
+      if (!today && logs.length === 0) {
+        $('#app').innerHTML = `
+          <div class="empty-state">
+            <h2>No data yet</h2>
+            <p>Send /start to your Telegram bot, then log your first day.</p>
+          </div>`;
+        return;
+      }
+
+      const scoreClass = today ? `score-color-${today.total_score}` : '';
+      const driftHtml = drift.drifts.length === 0
+        ? '<p class="no-drift">No drift detected. On track.</p>'
+        : `<ul class="drift-list">${drift.drifts.map(d =>
+            `<li><span class="drift-badge ${d.area.toLowerCase()}">${d.area}</span> severity ${d.severity}</li>`
+          ).join('')}</ul>`;
+
+      const reversedLogs = [...logs].reverse();
+      const labels = reversedLogs.map(r => r.date.slice(5));
+      const scores = reversedLogs.map(r => r.total_score);
+
+      $('#app').innerHTML = `
+        <div class="grid">
+          <div class="card">
+            <h2>Today</h2>
+            ${today ? `
+              <div class="big-score ${scoreClass}">${today.total_score}<span>/7</span></div>
+              <div class="sub-scores">
+                <div class="sub-score">Energy <strong>${today.energy_score}/4</strong></div>
+                <div class="sub-score">Exec <strong>${today.exec_score}/2</strong></div>
+                <div class="sub-score">Life <strong>${today.life_score}/1</strong></div>
+              </div>
+              <div class="metrics">
+                <div class="metric"><div class="dot ${today.sleep_hours >= 7.5 ? 'on' : 'off'}"></div>Sleep ${today.sleep_hours}h</div>
+                <div class="metric"><div class="dot ${today.bed_on_time ? 'on' : 'off'}"></div>Bed on time</div>
+                <div class="metric"><div class="dot ${today.workout ? 'on' : 'off'}"></div>Workout</div>
+                <div class="metric"><div class="dot ${today.eat_windows ? 'on' : 'off'}"></div>Eat windows</div>
+                <div class="metric"><div class="dot ${today.block1 ? 'on' : 'off'}"></div>Block 1</div>
+                <div class="metric"><div class="dot ${today.block2 ? 'on' : 'off'}"></div>Block 2</div>
+                <div class="metric"><div class="dot ${today.anchor ? 'on' : 'off'}"></div>Anchor</div>
+              </div>
+            ` : `<p style="color:var(--muted)">Not logged yet.</p>`}
+          </div>
+
+          <div class="card">
+            <h2>7-Day Trend</h2>
+            <div class="trend-label">${trend}</div>
+            <div class="trend-avg">${avg !== null ? `Avg: ${avg}/7` : 'No data'}</div>
+          </div>
+
+          <div class="card">
+            <h2>Drift Alerts</h2>
+            ${driftHtml}
+          </div>
+
+          <div class="card chart-wrap">
+            <h2>Score History</h2>
+            <canvas id="chart"></canvas>
+          </div>
+
+          <div class="card" style="grid-column: 1 / -1;">
+            <h2>Recent Logs</h2>
+            ${logs.length > 0 ? `
+              <table>
+                <tr>
+                  <th>Date</th><th>Sleep</th><th>Bed</th><th>Gym</th>
+                  <th>Eat</th><th>B1</th><th>B2</th><th>Anch</th><th>Score</th>
+                </tr>
+                ${logs.map(r => `
+                  <tr>
+                    <td>${r.date.slice(5)}</td>
+                    <td>${r.sleep_hours}h</td>
+                    <td>${yn(r.bed_on_time)}</td>
+                    <td>${yn(r.workout)}</td>
+                    <td>${yn(r.eat_windows)}</td>
+                    <td>${yn(r.block1)}</td>
+                    <td>${yn(r.block2)}</td>
+                    <td>${yn(r.anchor)}</td>
+                    <td><strong>${r.total_score}</strong>/7</td>
+                  </tr>
+                `).join('')}
+              </table>
+            ` : '<p style="color:var(--muted)">No logs yet.</p>'}
+          </div>
+        </div>`;
+
+      if (labels.length > 0) {
+        new Chart($('#chart'), {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [{
+              data: scores,
+              borderColor: '#3b82f6',
+              backgroundColor: '#3b82f620',
+              fill: true,
+              tension: 0.3,
+              pointBackgroundColor: scores.map(s => s >= 5 ? '#22c55e' : s >= 3 ? '#f59e0b' : '#ef4444'),
+              pointRadius: 5,
+              pointHoverRadius: 7,
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              y: {
+                min: 0, max: 7,
+                ticks: { stepSize: 1, color: '#6b7280' },
+                grid: { color: '#1e1e2e' },
+              },
+              x: {
+                ticks: { color: '#6b7280' },
+                grid: { display: false },
+              },
+            },
+          },
+        });
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

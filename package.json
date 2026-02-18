@@ -1,0 +1,21 @@
+{
+  "name": "lifeos",
+  "version": "1.0.0",
+  "description": "Personal life operating system — Telegram bot + dashboard",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node scripts/test-parser.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.6.2",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "grammy": "^1.40.0",
+    "node-cron": "^4.2.1"
+  }
+}

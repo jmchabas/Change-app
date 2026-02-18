@@ -1,23 +1,5 @@
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-._*
-
-# Thumbnails
-Thumbs.db
-
-# IDE / Editor
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Node (if added later)
 node_modules/
-npm-debug.log*
-
-# Environment
+lifeos.db
 .env
-.env.local
+.DS_Store
+._*
