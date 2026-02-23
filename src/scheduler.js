@@ -1,65 +1,76 @@
 import cron from 'node-cron';
 import * as db from './db.js';
-import { sendMessage } from './bot.js';
-import { getYesterdayHST, detectDrift, computeTrend, computeWeeklyStats } from './scoring.js';
+import { sendMessage, startCheckinForUser, startTargetSettingForUser } from './bot.js';
+import { getTodayHST, getYesterdayHST, getWeekStartHST, computeTrend } from './scoring.js';
+import { generateWeeklyReview } from './claude.js';
 import * as msg from './messages.js';
 
 const TZ = 'Pacific/Honolulu';
 
-const SUGGESTIONS = {
-  SLEEP:  'Set a hard phone-down time 30 min before bed.',
-  FOOD:   'Prep meals for your eating windows the night before.',
-  WORK:   'Block 90 min tomorrow morning — phone on DND, no Slack.',
-  SOCIAL: 'Text one friend today. Plan one real thing.',
-  None:   'Keep the streak going. Add one ambitious thing.',
-};
-
 export function startScheduler() {
-  // Morning Brief — 7:30 AM HST daily
-  cron.schedule('30 7 * * *', async () => {
+
+  // 5:00 PM (daily) — Target setting prompt + gym reminder
+  cron.schedule('0 17 * * *', async () => {
     const chatId = db.getChatId();
     if (!chatId) return;
+    startTargetSettingForUser(chatId);
+    await sendMessage(chatId, msg.targetPrompt());
+  }, { timezone: TZ });
 
+  // 8:30 PM (daily) — Evening check-in with Claude
+  cron.schedule('30 20 * * *', async () => {
+    const chatId = db.getChatId();
+    if (!chatId) return;
+    startCheckinForUser(chatId);
+    await sendMessage(chatId, msg.eveningCheckinPrompt());
+  }, { timezone: TZ });
+
+  // 7:00 AM (daily) — Morning brief
+  cron.schedule('0 7 * * *', async () => {
+    const chatId = db.getChatId();
+    if (!chatId) return;
     const yesterday = db.getDailyLog(getYesterdayHST());
+    const today = getTodayHST();
+    const targets = db.getDeliverables(today);
     const logs = db.getRecentLogs(7);
     const trend = computeTrend(logs);
-    const drift = detectDrift(logs);
-    const driftStr = drift.drifts.length > 0
-      ? drift.drifts.map(d => d.area).join(', ')
-      : 'None';
-    const suggestion = SUGGESTIONS[drift.biggest] || SUGGESTIONS.None;
-
-    const avg7 = logs.length > 0
-      ? (logs.reduce((s, r) => s + r.total_score, 0) / logs.length).toFixed(1)
-      : 'N/A';
-
-    await sendMessage(chatId, msg.morningBrief({
-      yesterday, avg7, trend, driftStr, suggestion,
-    }));
+    await sendMessage(chatId, msg.morningBrief({ yesterday, targets, trend }));
   }, { timezone: TZ });
 
-  // Evening Check-in — 9:30 PM HST daily
-  cron.schedule('30 21 * * *', async () => {
-    const chatId = db.getChatId();
-    if (!chatId) return;
-    await sendMessage(chatId, msg.eveningPrompt());
-  }, { timezone: TZ });
-
-  // Weekly Review — Sunday 9:00 AM HST
-  cron.schedule('0 9 * * 0', async () => {
+  // 5:00 PM Sunday — Weekly coaching review (Claude)
+  cron.schedule('0 17 * * 0', async () => {
     const chatId = db.getChatId();
     if (!chatId) return;
 
     const logs = db.getRecentLogs(7);
-    const stats = computeWeeklyStats(logs);
-    if (!stats) return;
+    if (logs.length === 0) return;
 
-    db.insertWeeklyReview(stats);
-    await sendMessage(chatId, msg.weeklyReview(stats));
+    const breakLogs = db.getBreakLogs(7);
+    const moodLogs = logs.filter(l => l.mood != null);
+    const avgMood = moodLogs.length > 0
+      ? (moodLogs.reduce((s, l) => s + l.mood, 0) / moodLogs.length).toFixed(1)
+      : null;
+    const avgScore = (logs.reduce((s, l) => s + (l.total_score || 0), 0) / logs.length).toFixed(1);
+
+    try {
+      const coachingText = await generateWeeklyReview({ logs, breakLogs, avgMood });
+      db.insertWeeklyReview({
+        week_start: getWeekStartHST(),
+        avg_score: parseFloat(avgScore),
+        avg_mood: avgMood ? parseFloat(avgMood) : null,
+        coaching_text: coachingText,
+      });
+      await sendMessage(chatId,
+        `${msg.weeklyReviewIntro()}\nAvg: ${avgScore}/8  ·  Mood: ${avgMood ?? '?'}/5\n\n${coachingText}`
+      );
+    } catch (err) {
+      console.error('Weekly review error:', err.message);
+    }
   }, { timezone: TZ });
 
-  console.log('Scheduler started (timezone: Pacific/Honolulu)');
-  console.log('  Morning brief  → 7:30 AM');
-  console.log('  Evening prompt → 9:30 PM');
-  console.log('  Weekly review  → Sunday 9:00 AM');
+  console.log('Scheduler started (Pacific/Honolulu)');
+  console.log('  7:00 AM       → Morning brief');
+  console.log('  5:00 PM       → Target setting + gym reminder');
+  console.log('  8:30 PM       → Evening check-in (Claude)');
+  console.log('  Sunday 5:00 PM → Weekly coaching review (Claude)');
 }

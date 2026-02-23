@@ -1,5 +1,8 @@
 node_modules/
 lifeos.db
+lifeos.db-shm
+lifeos.db-wal
 .env
 .DS_Store
 ._*
+Input/

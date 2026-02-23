@@ -3,7 +3,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = join(__dirname, '..', 'lifeos.db');
+const DB_PATH = process.env.DATABASE_PATH || join(__dirname, '..', 'lifeos.db');
 
 let db;
 
@@ -14,38 +14,48 @@ export function initDb() {
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS daily_log (
-      date         TEXT PRIMARY KEY,
-      sleep_hours  REAL,
-      bed_on_time  INTEGER,
-      workout      INTEGER,
-      eat_windows  INTEGER,
-      block1       INTEGER,
-      block2       INTEGER,
-      anchor       INTEGER,
-      energy_score INTEGER,
-      exec_score   INTEGER,
-      life_score   INTEGER,
-      total_score  INTEGER,
-      notes        TEXT DEFAULT '',
-      created_at   TEXT DEFAULT (datetime('now')),
-      updated_at   TEXT DEFAULT (datetime('now'))
+      date              TEXT PRIMARY KEY,
+      no_escape_media   INTEGER,
+      fixed_eating      INTEGER,
+      clean_evening     INTEGER,
+      work_win          INTEGER,
+      personal_win      INTEGER,
+      gym               INTEGER,
+      kids_quality      INTEGER,
+      bed_on_time       INTEGER,
+      total_score       INTEGER,
+      mood              INTEGER,
+      stress_note       TEXT DEFAULT '',
+      created_at        TEXT DEFAULT (datetime('now')),
+      updated_at        TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS deliverables (
+      date              TEXT PRIMARY KEY,
+      work_target       TEXT DEFAULT '',
+      personal_target   TEXT DEFAULT '',
+      created_at        TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS break_log (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      date              TEXT NOT NULL,
+      habit             TEXT NOT NULL,
+      reason            TEXT NOT NULL,
+      created_at        TEXT DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS weekly_review (
-      week_start   TEXT PRIMARY KEY,
-      avg_score    REAL,
-      best_day     TEXT,
-      best_score   INTEGER,
-      worst_day    TEXT,
-      worst_score  INTEGER,
-      biggest_drift TEXT,
-      one_fix      TEXT,
-      created_at   TEXT DEFAULT (datetime('now'))
+      week_start        TEXT PRIMARY KEY,
+      avg_score         REAL,
+      avg_mood          REAL,
+      coaching_text     TEXT,
+      created_at        TEXT DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS settings (
-      key   TEXT PRIMARY KEY,
-      value TEXT
+      key               TEXT PRIMARY KEY,
+      value             TEXT
     );
   `);
 
@@ -70,28 +80,23 @@ export function setSetting(key, value) {
   ).run(key, value, value);
 }
 
-export function getChatId() {
-  return getSetting('chat_id');
-}
-
-export function setChatId(id) {
-  setSetting('chat_id', String(id));
-}
+export function getChatId() { return getSetting('chat_id'); }
+export function setChatId(id) { setSetting('chat_id', String(id)); }
 
 // --- Daily Log ---
 
 export function upsertDailyLog(data) {
   getDb().prepare(`
-    INSERT INTO daily_log (date, sleep_hours, bed_on_time, workout, eat_windows,
-      block1, block2, anchor, energy_score, exec_score, life_score, total_score, notes)
-    VALUES (@date, @sleep_hours, @bed_on_time, @workout, @eat_windows,
-      @block1, @block2, @anchor, @energy_score, @exec_score, @life_score, @total_score, @notes)
+    INSERT INTO daily_log (date, no_escape_media, fixed_eating, clean_evening,
+      work_win, personal_win, gym, kids_quality, bed_on_time, total_score, mood, stress_note)
+    VALUES (@date, @no_escape_media, @fixed_eating, @clean_evening,
+      @work_win, @personal_win, @gym, @kids_quality, @bed_on_time, @total_score, @mood, @stress_note)
     ON CONFLICT(date) DO UPDATE SET
-      sleep_hours = @sleep_hours, bed_on_time = @bed_on_time, workout = @workout,
-      eat_windows = @eat_windows, block1 = @block1, block2 = @block2, anchor = @anchor,
-      energy_score = @energy_score, exec_score = @exec_score,
-      life_score = @life_score, total_score = @total_score,
-      notes = CASE WHEN @notes = '' THEN daily_log.notes ELSE @notes END,
+      no_escape_media = @no_escape_media, fixed_eating = @fixed_eating,
+      clean_evening = @clean_evening, work_win = @work_win, personal_win = @personal_win,
+      gym = @gym, kids_quality = @kids_quality, bed_on_time = @bed_on_time,
+      total_score = @total_score, mood = @mood,
+      stress_note = CASE WHEN @stress_note = '' THEN daily_log.stress_note ELSE @stress_note END,
       updated_at = datetime('now')
   `).run(data);
 }
@@ -101,32 +106,53 @@ export function getDailyLog(date) {
 }
 
 export function getRecentLogs(days = 7) {
-  return getDb().prepare(
-    'SELECT * FROM daily_log ORDER BY date DESC LIMIT ?'
-  ).all(days);
+  return getDb().prepare('SELECT * FROM daily_log ORDER BY date DESC LIMIT ?').all(days);
 }
 
 export function getAllLogs() {
   return getDb().prepare('SELECT * FROM daily_log ORDER BY date DESC').all();
 }
 
+// --- Deliverables ---
+
+export function upsertDeliverables(date, workTarget, personalTarget) {
+  getDb().prepare(`
+    INSERT INTO deliverables (date, work_target, personal_target)
+    VALUES (?, ?, ?)
+    ON CONFLICT(date) DO UPDATE SET work_target = ?, personal_target = ?
+  `).run(date, workTarget, personalTarget, workTarget, personalTarget);
+}
+
+export function getDeliverables(date) {
+  return getDb().prepare('SELECT * FROM deliverables WHERE date = ?').get(date);
+}
+
+// --- Break Log ---
+
+export function insertBreakLogs(date, breakReasons) {
+  const stmt = getDb().prepare('INSERT INTO break_log (date, habit, reason) VALUES (?, ?, ?)');
+  for (const { habit, reason } of breakReasons) {
+    stmt.run(date, habit, reason);
+  }
+}
+
+export function getBreakLogs(days = 7) {
+  return getDb().prepare(
+    'SELECT * FROM break_log ORDER BY created_at DESC LIMIT ?'
+  ).all(days * 4);
+}
+
 // --- Weekly Review ---
 
 export function insertWeeklyReview(data) {
   getDb().prepare(`
-    INSERT INTO weekly_review (week_start, avg_score, best_day, best_score,
-      worst_day, worst_score, biggest_drift, one_fix)
-    VALUES (@week_start, @avg_score, @best_day, @best_score,
-      @worst_day, @worst_score, @biggest_drift, @one_fix)
+    INSERT INTO weekly_review (week_start, avg_score, avg_mood, coaching_text)
+    VALUES (@week_start, @avg_score, @avg_mood, @coaching_text)
     ON CONFLICT(week_start) DO UPDATE SET
-      avg_score = @avg_score, best_day = @best_day, best_score = @best_score,
-      worst_day = @worst_day, worst_score = @worst_score,
-      biggest_drift = @biggest_drift, one_fix = @one_fix
+      avg_score = @avg_score, avg_mood = @avg_mood, coaching_text = @coaching_text
   `).run(data);
 }
 
 export function getRecentReviews(count = 4) {
-  return getDb().prepare(
-    'SELECT * FROM weekly_review ORDER BY week_start DESC LIMIT ?'
-  ).all(count);
+  return getDb().prepare('SELECT * FROM weekly_review ORDER BY week_start DESC LIMIT ?').all(count);
 }
