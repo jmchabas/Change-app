@@ -5,7 +5,7 @@ import { getTodayHST, getYesterdayHST, getWeekStartHST, computeTrend } from './s
 import { generateWeeklyReview } from './claude.js';
 import * as msg from './messages.js';
 
-const TZ = 'Pacific/Honolulu';
+const TZ = process.env.TZ || 'America/Los_Angeles';
 
 export function startScheduler() {
 
@@ -68,7 +68,7 @@ export function startScheduler() {
     }
   }, { timezone: TZ });
 
-  console.log('Scheduler started (Pacific/Honolulu)');
+  console.log(`Scheduler started (${TZ})`);
   console.log('  7:00 AM       → Morning brief');
   console.log('  5:00 PM       → Target setting + gym reminder');
   console.log('  8:30 PM       → Evening check-in (Claude)');

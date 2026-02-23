@@ -1,6 +1,6 @@
 // --- Date helpers (always Hawaii time) ---
 
-const TZ = 'Pacific/Honolulu';
+const TZ = process.env.TZ || 'America/Los_Angeles';
 
 export function getTodayHST() {
   return new Intl.DateTimeFormat('en-CA', {
