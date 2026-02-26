@@ -26,12 +26,22 @@ if (!ANTHROPIC_KEY || ANTHROPIC_KEY === 'your-anthropic-api-key-here') {
 
 console.log('Starting LifeOS...');
 
+process.on('unhandledRejection', (reason) => {
+  // Keep process alive for dashboard/API even if background integrations fail.
+  console.error('Unhandled rejection:', reason);
+});
+
 initDb();
 console.log('✓ Database ready');
 
 const bot = createBot(TOKEN);
-bot.start();
-console.log('✓ Telegram bot running (polling)');
+bot.start().then(() => {
+  console.log('✓ Telegram bot running (polling)');
+}).catch((err) => {
+  // Common case: 409 when another process polls same Telegram token.
+  console.error('⚠ Telegram polling failed:', err?.message || err);
+  console.error('⚠ App will continue running (dashboard/API still available).');
+});
 
 startScheduler();
 
