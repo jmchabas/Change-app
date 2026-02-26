@@ -4,26 +4,28 @@ A personal operating system that tracks daily habits, computes scores, detects d
 
 ## What it does
 
-- **Evening (9:30 PM):** Bot prompts you to log your day (30 seconds)
-- **Morning (7:30 AM):** Bot sends yesterday's score, 7-day trend, and drift alerts
-- **Sunday (9:00 AM):** Bot sends a weekly review with best/worst days and one fix
-- **Dashboard:** Dark-themed web cockpit with live scores, charts, and drift alerts
+- **5:00 PM:** Prompts tomorrow's work + personal targets
+- **8:30 PM:** Sends a secure check-in form link
+- **After form submit:** Starts short Claude reflection in Telegram
+- **7:00 AM:** Sends morning brief with yesterday score + wearables snapshot
+- **Sunday 5:00 PM:** Sends weekly coaching review
+- **Dashboard:** Dark-themed cockpit with scores, trends, and integrations
 
-## Scoring (max 7/day)
+## Scoring (0–100/day)
 
-| Metric | Points | Category |
-|--------|--------|----------|
-| Sleep ≥ 7.5 hours | 1 | Energy |
-| In bed on time (60-min window) | 1 | Energy |
-| Workout done | 1 | Energy |
-| Eating windows respected (no grazing) | 1 | Energy |
-| Execution Block 1 (90 min, no Slack) | 1 | Execution |
-| Execution Block 2 (60 min, no Slack) | 1 | Execution |
-| Social/Family anchor | 1 | Life |
+- **Behavior Score (0–80):**
+  - escape media minutes
+  - meals outside windows
+  - clean evening
+  - work win
+  - personal win
+  - gym
+  - kids quality
+  - time in bed vs 9:30pm target
+- **State Score (0–20):**
+  - mood slider (1–10)
 
-**Energy Score** = first 4 (0–4)
-**Execution Score** = next 2 (0–2)
-**Life Score** = last 1 (0–1)
+The app also keeps a legacy 0–8 pass score internally for compatibility.
 
 ## Quick start (5 minutes)
 
@@ -55,19 +57,39 @@ npm run dev
 
 1. Open your bot on Telegram
 2. Send `/start`
-3. Log your first day: `7.5 Y Y Y Y N Y`
+3. Wait for your 8:30 PM check-in link (or open the dashboard and use the check-in flow)
 
 That's it. The bot will message you at 7:30 AM and 9:30 PM (Hawaii time).
 The dashboard is at `http://localhost:3000`.
 
-## Log format
+### 5. (Optional) Connect Fitbit for auto-sync
 
-```
-<SLEEP_HOURS> <BED Y/N> <WORKOUT Y/N> <EAT Y/N> <BLOCK1 Y/N> <BLOCK2 Y/N> <ANCHOR Y/N>
-```
+1. Create a Fitbit app at https://dev.fitbit.com/apps
+2. Set OAuth 2.0 redirect URL:
+   - Local: `http://localhost:3000/auth/fitbit/callback`
+   - Railway: `https://<your-app>.up.railway.app/auth/fitbit/callback`
+3. Add env vars:
+   - `FITBIT_CLIENT_ID`
+   - `FITBIT_CLIENT_SECRET`
+   - `APP_BASE_URL` (required on deploy, e.g. Railway URL)
+4. Open dashboard and click **Connect Fitbit**.
 
-Example: `7.5 Y Y Y Y N Y`
-= 7.5h sleep, bed on time, worked out, ate clean, nailed block 1, skipped block 2, had a social anchor.
+After connection, LifeOS syncs recent Fitbit data daily and shows:
+- sleep hours
+- sleep score
+- resting heart rate
+
+## Check-in fields
+
+- escape media minutes
+- meals outside windows
+- clean evening + (if no) substances used
+- work win achieved?
+- personal win achieved?
+- gym + type
+- kids quality + note
+- time in bed (`9.25pm` or `9:25pm`)
+- mood slider (1–10)
 
 ## Bot commands
 
@@ -76,6 +98,7 @@ Example: `7.5 Y Y Y Y N Y`
 | `/start` | Register + show welcome |
 | `/today` | Show today's log and score |
 | `/week` | Show 7-day summary |
+| `/targets` | Set tomorrow targets manually |
 | `/help` | Show log format |
 
 ## Drift detection
@@ -112,7 +135,12 @@ This runs as a single process. Deploy anywhere that runs Node.js:
 **Railway (recommended):**
 1. Push to GitHub
 2. Go to [railway.app](https://railway.app), connect your repo
-3. Add environment variable `TELEGRAM_BOT_TOKEN`
+3. Add environment variables:
+   - `TELEGRAM_BOT_TOKEN`
+   - `ANTHROPIC_API_KEY`
+   - `TZ` (valid IANA timezone, e.g. `Pacific/Honolulu`)
+   - `DATABASE_PATH=/data/lifeos.db` (if using volume)
+   - `FITBIT_CLIENT_ID`, `FITBIT_CLIENT_SECRET`, `APP_BASE_URL` (optional Fitbit sync)
 4. Deploy — done
 
 The SQLite database is a single file (`lifeos.db`), automatically created on first run.

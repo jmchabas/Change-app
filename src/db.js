@@ -7,6 +7,32 @@ const DB_PATH = process.env.DATABASE_PATH || join(__dirname, '..', 'lifeos.db');
 
 let db;
 
+function ensureDailyLogColumns() {
+  const cols = getDb().prepare("PRAGMA table_info('daily_log')").all().map((c) => c.name);
+  const needed = [
+    ['escape_media_minutes', 'INTEGER'],
+    ['outside_window_meals', 'INTEGER'],
+    ['clean_evening_alcohol', 'INTEGER'],
+    ['clean_evening_weed', 'INTEGER'],
+    ['clean_evening_other_text', "TEXT DEFAULT ''"],
+    ['gym_type', "TEXT DEFAULT ''"],
+    ['kids_quality_note', "TEXT DEFAULT ''"],
+    ['bed_time_text', "TEXT DEFAULT ''"],
+    ['bed_time_minutes', 'INTEGER'],
+    ['mood_1_10', 'INTEGER'],
+    ['behavior_score', 'REAL'],
+    ['state_score', 'REAL'],
+    ['daily_score', 'REAL'],
+    ['checkin_completed_at', 'TEXT'],
+  ];
+
+  for (const [name, type] of needed) {
+    if (!cols.includes(name)) {
+      getDb().exec(`ALTER TABLE daily_log ADD COLUMN ${name} ${type};`);
+    }
+  }
+}
+
 export function initDb() {
   db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');
@@ -53,12 +79,24 @@ export function initDb() {
       created_at        TEXT DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS wearable_metrics (
+      date              TEXT PRIMARY KEY,
+      source            TEXT DEFAULT 'fitbit',
+      resting_hr        INTEGER,
+      sleep_hours       REAL,
+      sleep_score       REAL,
+      raw_sleep_json    TEXT,
+      raw_heart_json    TEXT,
+      synced_at         TEXT DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS settings (
       key               TEXT PRIMARY KEY,
       value             TEXT
     );
   `);
 
+  ensureDailyLogColumns();
   return db;
 }
 
@@ -88,17 +126,54 @@ export function setChatId(id) { setSetting('chat_id', String(id)); }
 export function upsertDailyLog(data) {
   getDb().prepare(`
     INSERT INTO daily_log (date, no_escape_media, fixed_eating, clean_evening,
-      work_win, personal_win, gym, kids_quality, bed_on_time, total_score, mood, stress_note)
+      work_win, personal_win, gym, kids_quality, bed_on_time, total_score, mood, stress_note,
+      escape_media_minutes, outside_window_meals, clean_evening_alcohol, clean_evening_weed, clean_evening_other_text,
+      gym_type, kids_quality_note, bed_time_text, bed_time_minutes, mood_1_10,
+      behavior_score, state_score, daily_score, checkin_completed_at)
     VALUES (@date, @no_escape_media, @fixed_eating, @clean_evening,
-      @work_win, @personal_win, @gym, @kids_quality, @bed_on_time, @total_score, @mood, @stress_note)
+      @work_win, @personal_win, @gym, @kids_quality, @bed_on_time, @total_score, @mood, @stress_note,
+      @escape_media_minutes, @outside_window_meals, @clean_evening_alcohol, @clean_evening_weed, @clean_evening_other_text,
+      @gym_type, @kids_quality_note, @bed_time_text, @bed_time_minutes, @mood_1_10,
+      @behavior_score, @state_score, @daily_score, @checkin_completed_at)
     ON CONFLICT(date) DO UPDATE SET
       no_escape_media = @no_escape_media, fixed_eating = @fixed_eating,
       clean_evening = @clean_evening, work_win = @work_win, personal_win = @personal_win,
       gym = @gym, kids_quality = @kids_quality, bed_on_time = @bed_on_time,
       total_score = @total_score, mood = @mood,
       stress_note = CASE WHEN @stress_note = '' THEN daily_log.stress_note ELSE @stress_note END,
+      escape_media_minutes = @escape_media_minutes,
+      outside_window_meals = @outside_window_meals,
+      clean_evening_alcohol = @clean_evening_alcohol,
+      clean_evening_weed = @clean_evening_weed,
+      clean_evening_other_text = @clean_evening_other_text,
+      gym_type = @gym_type,
+      kids_quality_note = @kids_quality_note,
+      bed_time_text = @bed_time_text,
+      bed_time_minutes = @bed_time_minutes,
+      mood_1_10 = @mood_1_10,
+      behavior_score = @behavior_score,
+      state_score = @state_score,
+      daily_score = @daily_score,
+      checkin_completed_at = @checkin_completed_at,
       updated_at = datetime('now')
-  `).run(data);
+  `).run({
+    stress_note: '',
+    escape_media_minutes: null,
+    outside_window_meals: null,
+    clean_evening_alcohol: 0,
+    clean_evening_weed: 0,
+    clean_evening_other_text: '',
+    gym_type: '',
+    kids_quality_note: '',
+    bed_time_text: '',
+    bed_time_minutes: null,
+    mood_1_10: null,
+    behavior_score: null,
+    state_score: null,
+    daily_score: null,
+    checkin_completed_at: null,
+    ...data,
+  });
 }
 
 export function getDailyLog(date) {
@@ -111,6 +186,38 @@ export function getRecentLogs(days = 7) {
 
 export function getAllLogs() {
   return getDb().prepare('SELECT * FROM daily_log ORDER BY date DESC').all();
+}
+
+// --- Wearable Metrics ---
+
+export function upsertWearableMetrics(data) {
+  getDb().prepare(`
+    INSERT INTO wearable_metrics (date, source, resting_hr, sleep_hours, sleep_score, raw_sleep_json, raw_heart_json, synced_at)
+    VALUES (@date, @source, @resting_hr, @sleep_hours, @sleep_score, @raw_sleep_json, @raw_heart_json, datetime('now'))
+    ON CONFLICT(date) DO UPDATE SET
+      source = @source,
+      resting_hr = @resting_hr,
+      sleep_hours = @sleep_hours,
+      sleep_score = @sleep_score,
+      raw_sleep_json = @raw_sleep_json,
+      raw_heart_json = @raw_heart_json,
+      synced_at = datetime('now')
+  `).run({
+    source: 'fitbit',
+    raw_sleep_json: '',
+    raw_heart_json: '',
+    ...data,
+  });
+}
+
+export function getWearableMetrics(date) {
+  return getDb().prepare('SELECT * FROM wearable_metrics WHERE date = ?').get(date);
+}
+
+export function getRecentWearableMetrics(days = 14) {
+  return getDb().prepare(
+    'SELECT * FROM wearable_metrics ORDER BY date DESC LIMIT ?'
+  ).all(days);
 }
 
 // --- Deliverables ---

@@ -1,8 +1,9 @@
 import { Bot } from 'grammy';
 import * as db from './db.js';
-import { getTodayHST, getTomorrowHST, computeScore } from './scoring.js';
+import { getTodayHST, getTomorrowHST } from './scoring.js';
 import * as msg from './messages.js';
 import { startCheckin, hasActiveConversation, continueCheckin, clearConversation } from './claude.js';
+import { createCheckinToken } from './checkin-link.js';
 
 let bot;
 
@@ -63,63 +64,22 @@ export function createBot(token) {
       }
     }
 
-    // --- Evening check-in (Claude-powered) ---
+    // --- Evening reflection (Claude-powered, after form submission) ---
     if (hasActiveConversation(chatId)) {
       try {
         const result = await continueCheckin(chatId, text);
-
-        if (result.done && result.data) {
-          const today = getTodayHST();
-          const habits = result.data;
-          const total_score = computeScore(habits);
-
-          db.upsertDailyLog({
-            date: today,
-            no_escape_media: habits.no_escape_media ?? null,
-            fixed_eating: habits.fixed_eating ?? null,
-            clean_evening: habits.clean_evening ?? null,
-            work_win: habits.work_win ?? null,
-            personal_win: habits.personal_win ?? null,
-            gym: habits.gym ?? null,
-            kids_quality: habits.kids_quality ?? null,
-            bed_on_time: habits.bed_on_time ?? null,
-            total_score,
-            mood: habits.mood ?? null,
-            stress_note: habits.stress_note || '',
-          });
-
-          if (Array.isArray(habits.break_reasons) && habits.break_reasons.length > 0) {
-            db.insertBreakLogs(today, habits.break_reasons);
-          }
-
-          // Flag stress cluster (2+ stress escapes broken)
-          const stressBreaks = ['no_escape_media', 'fixed_eating', 'clean_evening']
-            .filter(h => habits[h] === 0).length;
-          const clusterWarning = stressBreaks >= 2
-            ? '\n\nStress cluster today — two or more escapes. Worth paying attention to.' : '';
-
-          const scoreText = `\n\nScore: ${total_score}/8  ·  Mood: ${habits.mood ?? '?'}/5${clusterWarning}`;
-          await ctx.reply((result.message || '') + scoreText);
-
-        } else if (result.done) {
-          // Claude finalized but data parsing failed — still acknowledge
-          await ctx.reply(result.message || 'Check-in saved. Use /today to see your log.');
-
-        } else {
-          // Conversation still in progress — relay Claude's follow-up question
-          await ctx.reply(result.message);
-        }
+        await ctx.reply(result.message);
 
       } catch (err) {
         console.error('Check-in error:', err.message);
         clearConversation(chatId);
-        await ctx.reply('Something went wrong. Try again or use /today to see today\'s log.');
+        await ctx.reply('Something went wrong. Try again in a minute or use /today.');
       }
       return;
     }
 
     // Unrecognized message outside any active conversation
-    await ctx.reply('Check-in opens at 8:30pm. Use /targets to set tomorrow\'s targets, or /help for all commands.');
+    await ctx.reply('Use /targets to set tomorrow targets. Check-in link arrives at 8:30pm.');
   });
 
   bot.catch((err) => {
@@ -144,9 +104,17 @@ export async function sendMessage(chatId, text) {
 }
 
 export function startCheckinForUser(chatId) {
-  startCheckin(String(chatId));
+  const baseUrl = process.env.APP_BASE_URL || 'http://localhost:3000';
+  const token = createCheckinToken({ chatId, date: getTodayHST(), ttlHours: 24 });
+  const link = `${baseUrl.replace(/\/$/, '')}/checkin?token=${encodeURIComponent(token)}`;
+  return sendMessage(chatId, msg.eveningCheckinPrompt(link));
 }
 
 export function startTargetSettingForUser(chatId) {
   pendingTargets.set(chatId, { type: 'targets_work' });
+}
+
+export async function startReflectionForUser(chatId, checkinData) {
+  startCheckin(String(chatId), checkinData);
+  await sendMessage(chatId, msg.reflectionStartPrompt(checkinData.daily_score ?? '?'));
 }

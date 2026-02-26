@@ -192,8 +192,15 @@
       { key: 'bed_on_time',     label: 'Bed 10pm' },
     ];
 
-    const scoreColor = s => s >= 7 ? 'green' : s >= 5 ? 'amber' : 'red';
-    const moodLabel = m => ['', 'Terrible', 'Rough', 'Okay', 'Good', 'Great'][m] || '—';
+    const scoreColor = s => s >= 80 ? 'green' : s >= 60 ? 'amber' : 'red';
+    const moodLabel = m => {
+      if (!m) return '—';
+      if (m <= 2) return 'Terrible';
+      if (m <= 4) return 'Rough';
+      if (m <= 6) return 'Okay';
+      if (m <= 8) return 'Good';
+      return 'Great';
+    };
     const yn = v => v === 1 ? '<span style="color:var(--green)">✓</span>'
                   : v === 0 ? '<span style="color:var(--red)">✗</span>'
                   : '<span style="color:#374151">·</span>';
@@ -205,8 +212,8 @@
     }
 
     function todayCard(log, targets) {
-      const score = log ? log.total_score ?? 0 : null;
-      const mood = log ? log.mood : null;
+      const score = log ? (log.daily_score ?? log.total_score ?? 0) : null;
+      const mood = log ? (log.mood_1_10 ?? log.mood ?? null) : null;
       const isAlert = log && ['no_escape_media','fixed_eating','clean_evening'].filter(h => log[h] === 0).length >= 2;
 
       const habitsHtml = HABITS.map(h => {
@@ -233,14 +240,73 @@
         <div class="section-title">Today</div>
         <div class="today-top">
           ${score !== null
-            ? `<div class="big-num ${scoreColor(score)}">${score}<span class="denom">/8</span></div>`
-            : `<div class="big-num" style="color:var(--muted)">—<span class="denom">/8</span></div>`}
-          ${mood ? `<div><div class="mood-badge mood-${mood}">Mood ${mood}/5 · ${moodLabel(mood)}</div></div>` : ''}
+            ? `<div class="big-num ${scoreColor(score)}">${score}<span class="denom">/100</span></div>`
+            : `<div class="big-num" style="color:var(--muted)">—<span class="denom">/100</span></div>`}
+          ${mood ? `<div><div class="mood-badge mood-${Math.min(5, Math.ceil(mood / 2))}">Mood ${mood}/10 · ${moodLabel(mood)}</div></div>` : ''}
         </div>
         ${targetsHtml}
         <div class="habits-grid">${habitsHtml}</div>
         ${clusterHtml}
         ${log && log.stress_note ? `<div style="margin-top:.6rem;font-size:.75rem;color:var(--muted)">Note: ${log.stress_note}</div>` : ''}
+      </div>`;
+    }
+
+    function wearablesCard(wearable, wearablesWeek) {
+      const recent = (wearablesWeek || []).slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 7);
+      const avgSleep = recent.length
+        ? (recent.reduce((s, r) => s + (r.sleep_hours || 0), 0) / recent.length).toFixed(1)
+        : null;
+      const avgRhr = recent.filter(r => r.resting_hr != null).length
+        ? Math.round(recent.reduce((s, r) => s + (r.resting_hr || 0), 0) / recent.filter(r => r.resting_hr != null).length)
+        : null;
+
+      const rows = recent.length
+        ? recent.map(r => `<div class="habit-row">
+            <div class="hdot ${r.sleep_hours != null ? 'on' : 'unk'}"></div>
+            <span class="habit-label done">${r.date.slice(5)} · sleep ${r.sleep_hours ?? '?'}h · score ${r.sleep_score ?? '?'} · RHR ${r.resting_hr ?? '?'}</span>
+          </div>`).join('')
+        : '<p class="empty">No Fitbit data yet.</p>';
+
+      return `<div class="card">
+        <div class="section-title">Wearables (Fitbit)</div>
+        <div class="today-top">
+          <div class="big-num ${wearable?.sleep_hours >= 7 ? 'green' : wearable?.sleep_hours >= 6 ? 'amber' : 'red'}">
+            ${wearable?.sleep_hours ?? '—'}<span class="denom">h sleep</span>
+          </div>
+          <div class="mood-badge ${wearable?.sleep_score >= 80 ? 'mood-5' : wearable?.sleep_score >= 65 ? 'mood-3' : 'mood-2'}">
+            Sleep score ${wearable?.sleep_score ?? '—'}
+          </div>
+        </div>
+        <div class="targets">
+          <div class="t">→ Resting HR: <span>${wearable?.resting_hr ?? '—'} bpm</span></div>
+          <div class="t">→ 7-day avg sleep: <span>${avgSleep ?? '—'}h</span></div>
+          <div class="t">→ 7-day avg RHR: <span>${avgRhr ?? '—'} bpm</span></div>
+        </div>
+        <div class="habits-grid" style="grid-template-columns:1fr;margin-top:.8rem">${rows}</div>
+      </div>`;
+    }
+
+    function integrationCard(fitbit) {
+      const ok = fitbit?.connected;
+      const configured = fitbit?.configured;
+      let cta = '';
+      if (configured && !ok) {
+        cta = `<a href="/auth/fitbit/start" style="color:var(--blue);text-decoration:none">Connect Fitbit</a>`;
+      } else if (!configured) {
+        cta = `<span class="muted">Set FITBIT_CLIENT_ID / FITBIT_CLIENT_SECRET first</span>`;
+      }
+
+      return `<div class="card ${ok ? 'good' : ''}">
+        <div class="section-title">Integrations</div>
+        <div class="habit-row">
+          <div class="hdot ${ok ? 'on' : 'off'}"></div>
+          <span class="habit-label ${ok ? 'done' : ''}">Fitbit ${ok ? 'connected' : 'not connected'}</span>
+        </div>
+        <div class="targets">
+          <div class="t">→ Last sync: <span>${fitbit?.lastSyncAt ? new Date(fitbit.lastSyncAt).toLocaleString() : 'never'}</span></div>
+          ${fitbit?.lastSyncError ? `<div class="t" style="color:var(--red)">→ Last error: <span>${fitbit.lastSyncError}</span></div>` : ''}
+        </div>
+        <div style="margin-top:.7rem;font-size:.8rem">${cta}</div>
       </div>`;
     }
 
@@ -298,7 +364,7 @@
       const r = reviews[0];
       return `<div class="card">
         <div class="section-title">Latest Coaching</div>
-        <div class="coaching-meta">Week of ${r.week_start} · Avg ${r.avg_score}/8${r.avg_mood ? ` · Mood ${r.avg_mood}/5` : ''}</div>
+        <div class="coaching-meta">Week of ${r.week_start} · Avg ${r.avg_score}/100${r.avg_mood ? ` · Mood ${r.avg_mood}/10` : ''}</div>
         <div class="coaching-text">${r.coaching_text || '—'}</div>
       </div>`;
     }
@@ -327,8 +393,8 @@
       if (!ctx || logs.length === 0) return;
       const days = [...logs].reverse();
       const labels = days.map(l => l.date.slice(5));
-      const scores = days.map(l => l.total_score ?? null);
-      const moods = days.map(l => l.mood ? (l.mood / 5 * 8) : null); // normalize mood to /8 scale
+      const scores = days.map(l => l.daily_score ?? l.total_score ?? null);
+      const moods = days.map(l => l.mood_1_10 ? (l.mood_1_10 * 10) : null); // normalize mood to /100 scale
 
       if (scoreChart) scoreChart.destroy();
       scoreChart = new Chart(ctx, {
@@ -337,14 +403,14 @@
           labels,
           datasets: [
             {
-              label: 'Score /8',
+              label: 'Score /100',
               data: scores,
               borderColor: '#3b82f6',
               backgroundColor: '#3b82f615',
               fill: true,
               tension: 0.35,
               pointBackgroundColor: scores.map(s =>
-                s === null ? 'transparent' : s >= 6 ? '#22c55e' : s >= 4 ? '#f59e0b' : '#ef4444'),
+                s === null ? 'transparent' : s >= 80 ? '#22c55e' : s >= 60 ? '#f59e0b' : '#ef4444'),
               pointRadius: 5,
               pointHoverRadius: 7,
               spanGaps: true,
@@ -375,17 +441,17 @@
                 label: (ctx) => {
                   if (ctx.datasetIndex === 1) {
                     const raw = ctx.raw;
-                    return raw !== null ? `Mood: ${Math.round(raw / 8 * 5)}/5` : '';
+                    return raw !== null ? `Mood: ${Math.round(raw / 10)}/10` : '';
                   }
-                  return `Score: ${ctx.raw}/8`;
+                  return `Score: ${ctx.raw}/100`;
                 },
               },
             },
           },
           scales: {
             y: {
-              min: 0, max: 8,
-              ticks: { stepSize: 2, color: '#6b7280', font: { size: 10 } },
+              min: 0, max: 100,
+              ticks: { stepSize: 20, color: '#6b7280', font: { size: 10 } },
               grid: { color: '#1e1e2e' },
             },
             x: {
@@ -399,44 +465,53 @@
 
     async function load() {
       try {
-        const [todayRes, weekRes, histRes, reviewsRes, breaksRes] = await Promise.all([
+        const [todayRes, weekRes, histRes, reviewsRes, breaksRes, integrationsRes] = await Promise.all([
           fetch('/api/today').then(r => r.json()),
           fetch('/api/week').then(r => r.json()),
           fetch('/api/history').then(r => r.json()),
           fetch('/api/reviews').then(r => r.json()),
           fetch('/api/breaks').then(r => r.json()),
+          fetch('/api/integrations').then(r => r.json()),
         ]);
 
-        const { log, targets, date } = todayRes;
-        const { logs, trend, avg, avgMood } = weekRes;
+        const { log, targets, wearable, date } = todayRes;
+        const { logs, wearables, trend, avg, avgMood } = weekRes;
         const { reviews } = reviewsRes;
         const { breaks } = breaksRes;
         const allLogs = histRes.logs;
+        const fitbit = integrationsRes.fitbit;
 
         document.getElementById('header-date').textContent = date;
         document.getElementById('refresh-hint').textContent =
-          `avg ${avg ?? '—'}/8${avgMood ? ` · mood ${avgMood}/5` : ''}${trend ? ` · ${trend}` : ''}`;
+          `avg ${avg ?? '—'}/100${avgMood ? ` · mood ${avgMood}/10` : ''}${trend ? ` · ${trend}` : ''}${fitbit?.connected ? ' · fitbit on' : ''}`;
 
         document.getElementById('app').innerHTML = `
           <div class="section">
             <div class="grid-2">
               ${todayCard(log, targets)}
-              ${habitGridCard(logs.length > 0 ? logs : [])}
-            </div>
-          </div>
-
-          <div class="section">
-            <div class="card chart-wrap" style="height:200px">
-              <div class="section-title">Score + Mood Trend</div>
-              <div style="height:160px"><canvas id="trend-chart"></canvas></div>
+              ${wearablesCard(wearable, wearables)}
             </div>
           </div>
 
           <div class="section">
             <div class="grid-2">
-              ${missesCard(logs)}
-              ${coachingCard(reviews)}
+              <div class="card chart-wrap" style="height:200px">
+                <div class="section-title">Score + Mood Trend</div>
+                <div style="height:160px"><canvas id="trend-chart"></canvas></div>
+              </div>
+              ${integrationCard(fitbit)}
             </div>
+          </div>
+
+          <div class="section">
+            <div class="grid-2">
+              ${habitGridCard(logs.length > 0 ? logs : [])}
+              ${missesCard(logs)}
+            </div>
+          </div>
+
+          <div class="section">
+            ${coachingCard(reviews)}
           </div>
 
           <div class="section">

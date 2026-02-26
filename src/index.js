@@ -36,6 +36,8 @@ console.log('✓ Telegram bot running (polling)');
 startScheduler();
 
 const app = express();
+app.set('trust proxy', true);
+app.use(express.json());
 app.use(express.static(join(__dirname, '..', 'public')));
 app.use(dashboardRouter);
 

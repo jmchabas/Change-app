@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LifeOS Check-in</title>
+  <style>
+    :root {
+      --bg: #0b0f1a;
+      --card: #121a2b;
+      --line: #26324a;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --blue: #3b82f6;
+      --green: #10b981;
+      --red: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 20px;
+    }
+    .wrap { max-width: 760px; margin: 0 auto; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 18px;
+      margin-bottom: 14px;
+    }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    .muted { color: var(--muted); font-size: 14px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .field { margin-top: 10px; }
+    label { display: block; margin-bottom: 6px; font-weight: 600; }
+    input, select, textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #0d1423;
+      color: var(--text);
+    }
+    input[type="range"] { padding: 0; }
+    .inline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+    }
+    .subtle {
+      border-left: 2px solid var(--line);
+      padding-left: 10px;
+      margin-top: 8px;
+    }
+    button {
+      width: 100%;
+      border: 0;
+      border-radius: 10px;
+      background: var(--blue);
+      color: white;
+      font-weight: 700;
+      padding: 12px 14px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .success { color: var(--green); margin-top: 8px; }
+    .error { color: var(--red); margin-top: 8px; }
+    .small { font-size: 12px; color: var(--muted); }
+    @media (max-width: 700px) { .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Daily Check-in</h1>
+      <div class="muted" id="meta">Loading...</div>
+    </div>
+
+    <form id="form" class="card">
+      <div class="row">
+        <div class="field">
+          <label>Time spent on escape media (minutes)</label>
+          <input type="number" id="escape_media_minutes" min="0" step="1" placeholder="45" required />
+        </div>
+        <div class="field">
+          <label># meals outside your windows</label>
+          <input type="number" id="outside_window_meals" min="0" step="1" placeholder="0" required />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Clean evening?</label>
+        <div class="inline">
+          <label class="chip"><input type="radio" name="clean_evening" value="1" required /> Yes</label>
+          <label class="chip"><input type="radio" name="clean_evening" value="0" /> No</label>
+        </div>
+        <div id="substances" class="subtle" style="display:none">
+          <div class="small">If no, what was present?</div>
+          <div class="inline" style="margin-top:6px">
+            <label class="chip"><input type="checkbox" value="Alcohol" class="substance" /> Alcohol</label>
+            <label class="chip"><input type="checkbox" value="Weed" class="substance" /> Weed</label>
+            <label class="chip"><input type="checkbox" value="Other" class="substance" /> Other</label>
+          </div>
+          <div class="field">
+            <input type="text" id="clean_evening_other_text" placeholder="Other (optional text)" />
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>Work win achieved?</label>
+          <div class="small" id="work_target_hint">No target set.</div>
+          <div class="inline" style="margin-top:6px">
+            <label class="chip"><input type="radio" name="work_win" value="1" required /> Yes</label>
+            <label class="chip"><input type="radio" name="work_win" value="0" /> No</label>
+          </div>
+        </div>
+        <div class="field">
+          <label>Personal win achieved?</label>
+          <div class="small" id="personal_target_hint">No target set.</div>
+          <div class="inline" style="margin-top:6px">
+            <label class="chip"><input type="radio" name="personal_win" value="1" required /> Yes</label>
+            <label class="chip"><input type="radio" name="personal_win" value="0" /> No</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>Gym?</label>
+          <div class="inline">
+            <label class="chip"><input type="radio" name="gym" value="1" required /> Yes</label>
+            <label class="chip"><input type="radio" name="gym" value="0" /> No</label>
+          </div>
+          <div id="gym_type_wrap" class="field" style="display:none">
+            <select id="gym_type">
+              <option value="">Select type</option>
+              <option value="xfit">xfit</option>
+              <option value="otf">OTF</option>
+              <option value="home">home</option>
+              <option value="other">other</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Quality time with children?</label>
+          <div class="inline">
+            <label class="chip"><input type="radio" name="kids_quality" value="1" required /> Yes</label>
+            <label class="chip"><input type="radio" name="kids_quality" value="0" /> No</label>
+          </div>
+          <div id="kids_note_wrap" class="field" style="display:none">
+            <textarea id="kids_quality_note" rows="2" placeholder="What did you do? (optional)"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>Time in bed (US format)</label>
+          <input type="text" id="bed_time_text" placeholder="9.25pm or 9:25pm" required />
+        </div>
+        <div class="field">
+          <label>How's your mood today? <span id="mood_value">5</span>/10</label>
+          <input type="range" id="mood_1_10" min="1" max="10" step="1" value="5" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Optional stress note</label>
+        <textarea id="stress_note" rows="2" placeholder="Any context worth tracking?"></textarea>
+      </div>
+
+      <div class="field">
+        <button type="submit" id="submit_btn">Save check-in</button>
+      </div>
+      <div id="result"></div>
+    </form>
+  </div>
+
+  <script>
+    const token = new URLSearchParams(window.location.search).get('token');
+    const form = document.getElementById('form');
+    const result = document.getElementById('result');
+    const moodSlider = document.getElementById('mood_1_10');
+    const moodValue = document.getElementById('mood_value');
+
+    function pick(name) {
+      const el = document.querySelector(`input[name="${name}"]:checked`);
+      return el ? el.value : null;
+    }
+
+    function boolVal(name) {
+      return pick(name) === '1';
+    }
+
+    function setRadios(name, val) {
+      if (val == null) return;
+      const target = String(val);
+      const el = document.querySelector(`input[name="${name}"][value="${target}"]`);
+      if (el) el.checked = true;
+    }
+
+    function substancesList() {
+      return Array.from(document.querySelectorAll('.substance:checked')).map((el) => el.value);
+    }
+
+    function updateConditionalSections() {
+      document.getElementById('substances').style.display = boolVal('clean_evening') ? 'none' : 'block';
+      document.getElementById('gym_type_wrap').style.display = boolVal('gym') ? 'block' : 'none';
+      document.getElementById('kids_note_wrap').style.display = boolVal('kids_quality') ? 'block' : 'none';
+    }
+
+    async function loadInitial() {
+      if (!token) {
+        result.innerHTML = '<div class="error">Missing token in URL.</div>';
+        return;
+      }
+
+      const res = await fetch(`/api/checkin/form?token=${encodeURIComponent(token)}`);
+      const data = await res.json();
+      if (!data.ok) {
+        result.innerHTML = `<div class="error">${data.error}</div>`;
+        return;
+      }
+
+      document.getElementById('meta').textContent = `Date: ${data.date} • You can edit and resubmit this day.`;
+
+      if (data.targets) {
+        document.getElementById('work_target_hint').textContent = data.targets.work_target
+          ? `Target: ${data.targets.work_target}`
+          : 'No target set.';
+        document.getElementById('personal_target_hint').textContent = data.targets.personal_target
+          ? `Target: ${data.targets.personal_target}`
+          : 'No target set.';
+      }
+
+      const log = data.log;
+      if (log) {
+        if (log.escape_media_minutes != null) document.getElementById('escape_media_minutes').value = log.escape_media_minutes;
+        if (log.outside_window_meals != null) document.getElementById('outside_window_meals').value = log.outside_window_meals;
+        setRadios('clean_evening', log.clean_evening);
+        setRadios('work_win', log.work_win);
+        setRadios('personal_win', log.personal_win);
+        setRadios('gym', log.gym);
+        setRadios('kids_quality', log.kids_quality);
+        if (log.clean_evening_alcohol) document.querySelector('.substance[value="Alcohol"]').checked = true;
+        if (log.clean_evening_weed) document.querySelector('.substance[value="Weed"]').checked = true;
+        if (log.clean_evening_other_text) {
+          document.querySelector('.substance[value="Other"]').checked = true;
+          document.getElementById('clean_evening_other_text').value = log.clean_evening_other_text;
+        }
+        if (log.gym_type) document.getElementById('gym_type').value = log.gym_type;
+        if (log.kids_quality_note) document.getElementById('kids_quality_note').value = log.kids_quality_note;
+        if (log.bed_time_text) document.getElementById('bed_time_text').value = log.bed_time_text;
+        if (log.mood_1_10 != null) {
+          moodSlider.value = String(log.mood_1_10);
+          moodValue.textContent = String(log.mood_1_10);
+        }
+        if (log.stress_note) document.getElementById('stress_note').value = log.stress_note;
+      }
+
+      updateConditionalSections();
+    }
+
+    moodSlider.addEventListener('input', () => {
+      moodValue.textContent = moodSlider.value;
+    });
+
+    document.querySelectorAll('input[type="radio"]').forEach((el) => {
+      el.addEventListener('change', updateConditionalSections);
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      result.innerHTML = '';
+      document.getElementById('submit_btn').disabled = true;
+
+      const payload = {
+        token,
+        form: {
+          escape_media_minutes: document.getElementById('escape_media_minutes').value,
+          outside_window_meals: document.getElementById('outside_window_meals').value,
+          clean_evening: boolVal('clean_evening'),
+          clean_evening_substances: substancesList(),
+          clean_evening_other_text: document.getElementById('clean_evening_other_text').value.trim(),
+          work_win: boolVal('work_win'),
+          personal_win: boolVal('personal_win'),
+          gym: boolVal('gym'),
+          gym_type: boolVal('gym') ? document.getElementById('gym_type').value : '',
+          kids_quality: boolVal('kids_quality'),
+          kids_quality_note: boolVal('kids_quality') ? document.getElementById('kids_quality_note').value.trim() : '',
+          bed_time_text: document.getElementById('bed_time_text').value.trim(),
+          mood_1_10: moodSlider.value,
+          stress_note: document.getElementById('stress_note').value.trim(),
+        },
+      };
+
+      try {
+        const res = await fetch('/api/checkin/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'Submit failed');
+        result.innerHTML = `<div class="success">Saved. Today's score: ${data.daily_score}/100. Check Telegram for reflection.</div>`;
+      } catch (err) {
+        result.innerHTML = `<div class="error">${err.message}</div>`;
+      } finally {
+        document.getElementById('submit_btn').disabled = false;
+      }
+    });
+
+    loadInitial();
+  </script>
+</body>
+</html>

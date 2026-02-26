@@ -75,15 +75,55 @@ Scheduler started (timezone: Pacific/Honolulu)
 2. Search for your bot username (the one you chose in Step 1)
 3. Send `/start`
 4. The bot responds with a welcome message
-5. Log your first day: `7.5 Y Y Y Y N Y`
+5. At 8:30 PM, open the check-in link the bot sends and submit the form
 
 ## Step 6: See the dashboard
 
 Open `http://localhost:3000` in your browser. You'll see your score and metrics.
 
+## Check-in flow
+
+- 5:00 PM: set tomorrow work/personal targets in Telegram
+- 8:30 PM: receive secure check-in link in Telegram
+- submit form (you can edit and re-submit same day)
+- app sends a short Claude reflection back in Telegram
+
+## Step 7 (optional): Connect Fitbit
+
+### A) Create Fitbit developer app
+
+1. Go to https://dev.fitbit.com/apps and create an app
+2. Enable OAuth 2.0
+3. Add redirect URI(s):
+   - Local: `http://localhost:3000/auth/fitbit/callback`
+   - Railway: `https://<your-app>.up.railway.app/auth/fitbit/callback`
+4. Copy `Client ID` and `Client Secret`
+
+### B) Add env vars
+
+Add to `.env` (or Railway variables):
+
+```
+FITBIT_CLIENT_ID=...
+FITBIT_CLIENT_SECRET=...
+APP_BASE_URL=http://localhost:3000
+```
+
+For Railway, set:
+- `APP_BASE_URL=https://<your-app>.up.railway.app`
+
+### C) Connect from dashboard
+
+1. Open dashboard
+2. Click **Connect Fitbit**
+3. Complete Fitbit consent
+4. You should see Fitbit status as connected
+
+The app then auto-syncs recent Fitbit data daily (sleep hours, sleep score, resting HR).
+
 ## Timezone
 
-Everything runs in **Pacific/Honolulu (HST, UTC-10)**. The cron schedules and date calculations use this timezone. To change it:
+Everything runs using `TZ` from env and it must be a **valid IANA timezone** (example: `Pacific/Honolulu` or `America/Los_Angeles`). To change it:
 
 1. Edit `TZ` in `.env`
 2. Update the `TZ` constant in `src/scoring.js` and `src/scheduler.js`
@@ -98,6 +138,11 @@ To keep the bot running 24/7, deploy to Railway:
 4. Select your LifeOS repo
 5. Go to the Variables tab and add:
    - `TELEGRAM_BOT_TOKEN` = your bot token
+   - `ANTHROPIC_API_KEY` = your Anthropic key
+   - `TZ` = valid timezone string (example: `Pacific/Honolulu`)
+   - `APP_BASE_URL` = your Railway app URL (`https://...up.railway.app`)
+   - Optional Fitbit: `FITBIT_CLIENT_ID`, `FITBIT_CLIENT_SECRET`
+   - Optional persistent DB: `DATABASE_PATH=/data/lifeos.db` with volume mounted at `/data`
 6. Railway will build and deploy automatically
 7. The dashboard URL will be shown in the deployment logs
 
