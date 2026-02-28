@@ -13,7 +13,7 @@ export function startScheduler() {
   // 6:40 AM (daily) — pull latest Fitbit metrics
   cron.schedule('40 6 * * *', async () => {
     try {
-      const result = await syncRecentFitbitData(3);
+      const result = await syncRecentFitbitData(1);
       if (result?.ok) console.log('Fitbit sync complete');
     } catch (err) {
       console.error('Fitbit sync error:', err.message);
@@ -41,7 +41,7 @@ export function startScheduler() {
     if (!chatId) return;
 
     try {
-      await syncRecentFitbitData(2);
+      await syncRecentFitbitData(1);
     } catch (err) {
       console.error('Morning Fitbit sync error:', err.message);
     }

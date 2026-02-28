@@ -5,6 +5,18 @@ const FITBIT_AUTH_URL = 'https://www.fitbit.com/oauth2/authorize';
 const FITBIT_TOKEN_URL = 'https://api.fitbit.com/oauth2/token';
 const FITBIT_API_BASE = 'https://api.fitbit.com';
 const TZ = process.env.TZ || 'America/Los_Angeles';
+const MAX_RETRIES = 3;
+const BASE_BACKOFF_MS = 800;
+
+class FitbitApiError extends Error {
+  constructor(message, { status = null, retryable = false, path = '' } = {}) {
+    super(message);
+    this.name = 'FitbitApiError';
+    this.status = status;
+    this.retryable = retryable;
+    this.path = path;
+  }
+}
 
 function formatDateInTz(date) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -95,21 +107,68 @@ async function getValidAccessToken() {
   return refreshed.access_token;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableStatus(status) {
+  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+function summarizeFitbitError(err) {
+  if (err?.retryable || (err?.status && isRetryableStatus(err.status))) {
+    return 'Fitbit is temporarily overloaded. Auto-retry is active.';
+  }
+  return err?.message || 'Fitbit sync failed.';
+}
+
 async function fitbitGet(path) {
   const accessToken = await getValidAccessToken();
-  const res = await fetch(`${FITBIT_API_BASE}${path}`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: 'application/json',
-    },
-  });
 
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`Fitbit API failed (${res.status}) ${path}: ${text}`);
+  let lastErr = null;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(`${FITBIT_API_BASE}${path}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      });
+
+      const text = await res.text();
+      if (!res.ok) {
+        const retryable = isRetryableStatus(res.status);
+        const err = new FitbitApiError(
+          `Fitbit API failed (${res.status}) ${path}: ${text}`,
+          { status: res.status, retryable, path }
+        );
+        if (!retryable || attempt === MAX_RETRIES) throw err;
+
+        const waitMs = BASE_BACKOFF_MS * (2 ** attempt) + Math.floor(Math.random() * 200);
+        await sleep(waitMs);
+        continue;
+      }
+
+      return JSON.parse(text);
+    } catch (err) {
+      const retryable = err instanceof FitbitApiError
+        ? err.retryable
+        : true; // transient network errors should retry too
+
+      lastErr = err instanceof FitbitApiError
+        ? err
+        : new FitbitApiError(`Fitbit network error ${path}: ${err.message}`, {
+            status: null,
+            retryable,
+            path,
+          });
+
+      if (!retryable || attempt === MAX_RETRIES) throw lastErr;
+      const waitMs = BASE_BACKOFF_MS * (2 ** attempt) + Math.floor(Math.random() * 200);
+      await sleep(waitMs);
+    }
   }
-
-  return JSON.parse(text);
+  throw lastErr || new FitbitApiError(`Fitbit request failed: ${path}`, { path });
 }
 
 function parseSleepHours(sleepPayload) {
@@ -205,21 +264,53 @@ export async function handleFitbitCallback({ code, state, baseUrl }) {
 }
 
 export async function syncFitbitDate(date) {
-  const [sleepPayload, heartPayload] = await Promise.all([
-    fitbitGet(`/1.2/user/-/sleep/date/${date}.json`),
-    fitbitGet(`/1/user/-/activities/heart/date/${date}/1d.json`),
-  ]);
+  const existing = db.getWearableMetrics(date) || {};
 
+  let sleepPayload = null;
+  let heartPayload = null;
   let sleepScorePayload = null;
+  let sleepErr = null;
+  let heartErr = null;
+
   try {
-    sleepScorePayload = await fitbitGet(`/1.2/user/-/sleep/score/date/${date}.json`);
-  } catch {
-    // Sleep score endpoint is not available on all accounts/devices.
+    sleepPayload = await fitbitGet(`/1.2/user/-/sleep/date/${date}.json`);
+  } catch (err) {
+    sleepErr = err;
   }
 
-  const sleepHours = parseSleepHours(sleepPayload);
-  const sleepScore = parseSleepScore(sleepScorePayload, sleepPayload);
-  const restingHr = parseRestingHr(heartPayload);
+  try {
+    heartPayload = await fitbitGet(`/1/user/-/activities/heart/date/${date}/1d.json`);
+  } catch (err) {
+    heartErr = err;
+  }
+
+  // Optional endpoint (availability varies by account/device).
+  if (sleepPayload) {
+    try {
+      sleepScorePayload = await fitbitGet(`/1.2/user/-/sleep/score/date/${date}.json`);
+    } catch {
+      // Keep sleep sync successful even if score endpoint is unavailable.
+    }
+  }
+
+  const sleepHours = sleepPayload ? parseSleepHours(sleepPayload) : existing.sleep_hours ?? null;
+  const sleepScore = sleepPayload
+    ? parseSleepScore(sleepScorePayload, sleepPayload)
+    : existing.sleep_score ?? null;
+  const restingHr = heartPayload ? parseRestingHr(heartPayload) : existing.resting_hr ?? null;
+
+  const rawSleepJson = sleepPayload
+    ? JSON.stringify(sleepPayload)
+    : existing.raw_sleep_json ?? '';
+  const rawHeartJson = heartPayload
+    ? JSON.stringify(heartPayload)
+    : existing.raw_heart_json ?? '';
+
+  if (!sleepPayload && !heartPayload && !existing.date) {
+    // No fresh data and no last-known row to preserve.
+    const err = sleepErr || heartErr || new FitbitApiError('Fitbit sync failed', { retryable: true });
+    throw err;
+  }
 
   db.upsertWearableMetrics({
     date,
@@ -227,26 +318,56 @@ export async function syncFitbitDate(date) {
     resting_hr: restingHr,
     sleep_hours: sleepHours,
     sleep_score: sleepScore,
-    raw_sleep_json: JSON.stringify(sleepPayload),
-    raw_heart_json: JSON.stringify(heartPayload),
+    raw_sleep_json: rawSleepJson,
+    raw_heart_json: rawHeartJson,
   });
+
+  return {
+    partial: Boolean((sleepErr || heartErr) && (sleepPayload || heartPayload || existing.date)),
+    warnings: [sleepErr, heartErr].filter(Boolean).map((err) => summarizeFitbitError(err)),
+  };
 }
 
 export async function syncRecentFitbitData(days = 3) {
   if (!isFitbitConfigured()) return { ok: false, reason: 'not-configured' };
   if (!getStoredTokens()?.refresh_token) return { ok: false, reason: 'not-connected' };
 
+  let successCount = 0;
+  const warnings = [];
+  const errors = [];
+
   for (let i = 0; i < days; i++) {
     const date = getDateDaysAgo(i);
     try {
-      await syncFitbitDate(date);
+      const out = await syncFitbitDate(date);
+      successCount++;
+      if (out?.partial && out.warnings?.length) {
+        warnings.push(`${date}: ${out.warnings[0]}`);
+      }
     } catch (err) {
-      db.setSetting('fitbit_last_sync_error', `${new Date().toISOString()} ${err.message}`);
-      throw err;
+      errors.push(`${date}: ${summarizeFitbitError(err)}`);
     }
   }
 
-  db.setSetting('fitbit_last_sync_at', new Date().toISOString());
-  db.setSetting('fitbit_last_sync_error', '');
-  return { ok: true };
+  if (successCount > 0) {
+    db.setSetting('fitbit_last_sync_at', new Date().toISOString());
+  }
+
+  if (errors.length > 0 || warnings.length > 0) {
+    const msg = errors[0] || warnings[0] || 'Fitbit sync warning.';
+    db.setSetting('fitbit_last_sync_error', `${new Date().toISOString()} ${msg}`);
+  } else {
+    db.setSetting('fitbit_last_sync_error', '');
+  }
+
+  if (successCount === 0 && errors.length > 0) {
+    throw new FitbitApiError(errors[0], { retryable: true });
+  }
+
+  return {
+    ok: true,
+    successCount,
+    warningsCount: warnings.length,
+    errorsCount: errors.length,
+  };
 }
