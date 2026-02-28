@@ -261,6 +261,17 @@ export async function handleFitbitCallback({ code, state, baseUrl }) {
   saveTokens(tokenPayload);
   db.setSetting('fitbit_oauth_state', '');
   db.setSetting('fitbit_last_sync_error', '');
+
+  // Immediately backfill after (re)connect so dashboard is populated.
+  // This helps when DB was empty after a redeploy or first-time setup.
+  try {
+    await syncRecentFitbitData(14);
+  } catch (err) {
+    db.setSetting(
+      'fitbit_last_sync_error',
+      `${new Date().toISOString()} ${summarizeFitbitError(err)}`
+    );
+  }
 }
 
 export async function syncFitbitDate(date) {

@@ -10,6 +10,16 @@ const TZ = process.env.TZ || 'America/Los_Angeles';
 
 export function startScheduler() {
 
+  // Startup bootstrap sync so wearable data appears without waiting for the next cron tick.
+  setTimeout(async () => {
+    try {
+      const result = await syncRecentFitbitData(3);
+      if (result?.ok) console.log('Fitbit bootstrap sync complete');
+    } catch (err) {
+      console.error('Fitbit bootstrap sync error:', err.message);
+    }
+  }, 5000);
+
   // 6:40 AM (daily) — pull latest Fitbit metrics
   cron.schedule('40 6 * * *', async () => {
     try {

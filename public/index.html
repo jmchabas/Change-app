@@ -386,6 +386,25 @@
       </div>`;
     }
 
+    function latestCheckinLinkCard(payload) {
+      if (!payload || !payload.available) {
+        return `<div class="card">
+          <div class="section-title">Latest Check-in Link</div>
+          <p class="empty">${payload?.reason || 'Link unavailable.'}</p>
+        </div>`;
+      }
+
+      return `<div class="card">
+        <div class="section-title">Latest Check-in Link</div>
+        <p style="font-size:.82rem; color:var(--muted); margin-bottom:.5rem;">
+          Date: ${payload.date} (valid for 24h)
+        </p>
+        <a href="${payload.link}" style="color:var(--blue); word-break:break-all; font-size:.82rem;">
+          ${payload.link}
+        </a>
+      </div>`;
+    }
+
     let scoreChart = null;
 
     function renderTrendChart(logs) {
@@ -465,13 +484,14 @@
 
     async function load() {
       try {
-        const [todayRes, weekRes, histRes, reviewsRes, breaksRes, integrationsRes] = await Promise.all([
+        const [todayRes, weekRes, histRes, reviewsRes, breaksRes, integrationsRes, latestLinkRes] = await Promise.all([
           fetch('/api/today').then(r => r.json()),
           fetch('/api/week').then(r => r.json()),
           fetch('/api/history').then(r => r.json()),
           fetch('/api/reviews').then(r => r.json()),
           fetch('/api/breaks').then(r => r.json()),
           fetch('/api/integrations').then(r => r.json()),
+          fetch('/api/checkin/latest-link').then(r => r.json()),
         ]);
 
         const { log, targets, wearable, date } = todayRes;
@@ -480,6 +500,7 @@
         const { breaks } = breaksRes;
         const allLogs = histRes.logs;
         const fitbit = integrationsRes.fitbit;
+        const latestLink = latestLinkRes;
 
         document.getElementById('header-date').textContent = date;
         document.getElementById('refresh-hint').textContent =
@@ -516,6 +537,10 @@
 
           <div class="section">
             ${breakLogCard(breaks)}
+          </div>
+
+          <div class="section">
+            ${latestCheckinLinkCard(latestLink)}
           </div>
         `;
 

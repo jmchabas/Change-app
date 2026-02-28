@@ -7,6 +7,7 @@ import {
   getFitbitStatus,
 } from './fitbit.js';
 import { verifyCheckinToken } from './checkin-link.js';
+import { createCheckinToken } from './checkin-link.js';
 import { startReflectionForUser } from './bot.js';
 
 const router = Router();
@@ -54,6 +55,30 @@ router.get('/api/breaks', (req, res) => {
 router.get('/api/integrations', (req, res) => {
   res.json({
     fitbit: getFitbitStatus(),
+  });
+});
+
+router.get('/api/checkin/latest-link', (req, res) => {
+  const chatId = db.getChatId();
+  if (!chatId) {
+    res.json({
+      ok: true,
+      available: false,
+      reason: 'No Telegram chat registered yet. Send /start to your bot first.',
+    });
+    return;
+  }
+
+  const date = getTodayHST();
+  const token = createCheckinToken({ chatId, date, ttlHours: 24 });
+  const baseUrl = getBaseUrl(req).replace(/\/$/, '');
+  const link = `${baseUrl}/checkin?token=${encodeURIComponent(token)}`;
+
+  res.json({
+    ok: true,
+    available: true,
+    date,
+    link,
   });
 });
 
