@@ -5,28 +5,36 @@ import {
   getFitbitAuthUrl,
   handleFitbitCallback,
   getFitbitStatus,
+  syncRecentFitbitData,
 } from './fitbit.js';
 import { verifyCheckinToken } from './checkin-link.js';
 import { createCheckinToken } from './checkin-link.js';
 import { startReflectionForUser } from './bot.js';
 
 const router = Router();
+const TZ = process.env.TZ || 'America/Los_Angeles';
 
 function getBaseUrl(req) {
   return process.env.APP_BASE_URL || `${req.protocol}://${req.get('host')}`;
+}
+
+function sanitizeWearable(row) {
+  if (!row) return null;
+  const { raw_sleep_json, raw_heart_json, ...safe } = row;
+  return safe;
 }
 
 router.get('/api/today', (req, res) => {
   const today = getTodayHST();
   const log = db.getDailyLog(today);
   const targets = db.getDeliverables(today);
-  const wearable = db.getWearableMetrics(today);
+  const wearable = sanitizeWearable(db.getWearableMetrics(today));
   res.json({ date: today, log: log || null, targets: targets || null, wearable: wearable || null });
 });
 
 router.get('/api/week', (req, res) => {
   const logs = db.getRecentLogs(7);
-  const wearables = db.getRecentWearableMetrics(7);
+  const wearables = db.getRecentWearableMetrics(7).map(sanitizeWearable);
   const trend = computeTrend(logs);
   const avg = logs.length > 0
     ? Math.round((logs.reduce((s, r) => s + (r.daily_score ?? r.total_score ?? 0), 0) / logs.length) * 10) / 10
@@ -54,8 +62,18 @@ router.get('/api/breaks', (req, res) => {
 
 router.get('/api/integrations', (req, res) => {
   res.json({
+    timezone: TZ,
     fitbit: getFitbitStatus(),
   });
+});
+
+router.post('/api/fitbit/sync-now', async (req, res) => {
+  try {
+    const result = await syncRecentFitbitData(3);
+    res.json({ ok: true, result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 router.get('/api/checkin/latest-link', (req, res) => {

@@ -1,3 +1,5 @@
+const TZ = process.env.TZ || 'America/Los_Angeles';
+
 export function welcomeMessage() {
   return `LifeOS is running. Here's your daily rhythm:
 
@@ -5,6 +7,7 @@ export function welcomeMessage() {
 • 8:30pm  — Evening check-in form link + reflection
 • 7:00am  — Morning brief + today's targets
 • Sun 5pm — Weekly coaching review
+• Timezone — ${TZ}
 
 Commands:
 /today   — today's log
@@ -26,7 +29,7 @@ export function targetConfirmation(workTarget, personalTarget) {
 }
 
 export function eveningCheckinPrompt(link) {
-  return `Evening check-in time.\n\nOpen this link and submit today's form:\n${link}\n\nAfter you submit, we'll do a short reflection here.`;
+  return `Evening check-in time (${TZ}).\n\nOpen this link and submit today's form:\n${link}\n\nAfter you submit, we'll do a short reflection here.`;
 }
 
 export function reflectionStartPrompt(score) {
@@ -59,7 +62,7 @@ export function morningBrief({ yesterday, targets, trend, wearableYesterday }) {
     targetsBlock = `Today's mission:\n→ Work: ${targets.work_target}\n→ Personal: ${targets.personal_target}`;
   }
 
-  return `Morning.\n\n${scoreBlock}\n${wearableLine}\n${trendLine}\n${targetsBlock}`;
+  return `Morning (${TZ}).\n\n${scoreBlock}\n${wearableLine}\n${trendLine}\n${targetsBlock}`;
 }
 
 export function weeklyReviewIntro() {

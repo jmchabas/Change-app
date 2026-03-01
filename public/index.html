@@ -307,6 +307,12 @@
           ${fitbit?.lastSyncError ? `<div class="t" style="color:var(--red)">→ Last error: <span>${fitbit.lastSyncError}</span></div>` : ''}
         </div>
         <div style="margin-top:.7rem;font-size:.8rem">${cta}</div>
+        <div style="margin-top:.7rem">
+          <button id="fitbit-sync-now" style="width:auto;padding:.45rem .7rem;background:#1d4ed8;color:white;border:none;border-radius:6px;font-size:.75rem;cursor:pointer;">
+            Sync Fitbit now
+          </button>
+          <span id="fitbit-sync-status" class="muted" style="font-size:.72rem;margin-left:.5rem;"></span>
+        </div>
       </div>`;
     }
 
@@ -399,9 +405,15 @@
         <p style="font-size:.82rem; color:var(--muted); margin-bottom:.5rem;">
           Date: ${payload.date} (valid for 24h)
         </p>
-        <a href="${payload.link}" style="color:var(--blue); word-break:break-all; font-size:.82rem;">
+        <a id="latest-checkin-link" href="${payload.link}" style="color:var(--blue); word-break:break-all; font-size:.82rem;">
           ${payload.link}
         </a>
+        <div style="margin-top:.6rem;">
+          <button id="copy-checkin-link" style="width:auto;padding:.4rem .65rem;background:#374151;color:white;border:none;border-radius:6px;font-size:.75rem;cursor:pointer;">
+            Copy link
+          </button>
+          <span id="copy-checkin-status" class="muted" style="font-size:.72rem;margin-left:.5rem;"></span>
+        </div>
       </div>`;
     }
 
@@ -499,12 +511,13 @@
         const { reviews } = reviewsRes;
         const { breaks } = breaksRes;
         const allLogs = histRes.logs;
+        const tz = integrationsRes.timezone || 'Unknown TZ';
         const fitbit = integrationsRes.fitbit;
         const latestLink = latestLinkRes;
 
         document.getElementById('header-date').textContent = date;
         document.getElementById('refresh-hint').textContent =
-          `avg ${avg ?? '—'}/100${avgMood ? ` · mood ${avgMood}/10` : ''}${trend ? ` · ${trend}` : ''}${fitbit?.connected ? ' · fitbit on' : ''}`;
+          `avg ${avg ?? '—'}/100${avgMood ? ` · mood ${avgMood}/10` : ''}${trend ? ` · ${trend}` : ''}${fitbit?.connected ? ' · fitbit on' : ''} · ${tz}`;
 
         document.getElementById('app').innerHTML = `
           <div class="section">
@@ -545,10 +558,50 @@
         `;
 
         renderTrendChart(allLogs.slice(0, 30).reverse());
+        bindActionButtons();
 
       } catch (err) {
         document.getElementById('app').innerHTML =
           `<div class="empty" style="text-align:center;padding:3rem">Failed to load — is the server running?<br><small>${err.message}</small></div>`;
+      }
+    }
+
+    function bindActionButtons() {
+      const copyBtn = document.getElementById('copy-checkin-link');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', async () => {
+          const linkEl = document.getElementById('latest-checkin-link');
+          const status = document.getElementById('copy-checkin-status');
+          const link = linkEl ? linkEl.href : '';
+          try {
+            await navigator.clipboard.writeText(link);
+            status.textContent = 'Copied';
+          } catch {
+            status.textContent = 'Copy failed';
+          }
+          setTimeout(() => { status.textContent = ''; }, 2000);
+        });
+      }
+
+      const syncBtn = document.getElementById('fitbit-sync-now');
+      if (syncBtn) {
+        syncBtn.addEventListener('click', async () => {
+          const status = document.getElementById('fitbit-sync-status');
+          syncBtn.disabled = true;
+          status.textContent = 'Syncing...';
+          try {
+            const res = await fetch('/api/fitbit/sync-now', { method: 'POST' });
+            const body = await res.json();
+            if (!res.ok || !body.ok) throw new Error(body.error || 'Sync failed');
+            status.textContent = 'Synced';
+            setTimeout(() => load(), 500);
+          } catch {
+            status.textContent = 'Sync error';
+          } finally {
+            syncBtn.disabled = false;
+            setTimeout(() => { status.textContent = ''; }, 2500);
+          }
+        });
       }
     }
 
