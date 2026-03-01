@@ -221,6 +221,7 @@ export function getFitbitStatus() {
     connectedAt: db.getSetting('fitbit_connected_at'),
     lastSyncAt: db.getSetting('fitbit_last_sync_at'),
     lastSyncError: db.getSetting('fitbit_last_sync_error'),
+    lastSyncSummary: db.getSetting('fitbit_last_sync_summary'),
   };
 }
 
@@ -370,6 +371,9 @@ export async function syncRecentFitbitData(days = 3) {
   } else {
     db.setSetting('fitbit_last_sync_error', '');
   }
+
+  const summary = `${successCount} day(s) synced · ${warnings.length} warning(s) · ${errors.length} error(s)`;
+  db.setSetting('fitbit_last_sync_summary', summary);
 
   if (successCount === 0 && errors.length > 0) {
     throw new FitbitApiError(errors[0], { retryable: true });

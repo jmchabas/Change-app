@@ -304,6 +304,7 @@
         </div>
         <div class="targets">
           <div class="t">→ Last sync: <span>${fitbit?.lastSyncAt ? new Date(fitbit.lastSyncAt).toLocaleString() : 'never'}</span></div>
+          ${fitbit?.lastSyncSummary ? `<div class="t">→ Last result: <span>${fitbit.lastSyncSummary}</span></div>` : ''}
           ${fitbit?.lastSyncError ? `<div class="t" style="color:var(--red)">→ Last error: <span>${fitbit.lastSyncError}</span></div>` : ''}
         </div>
         <div style="margin-top:.7rem;font-size:.8rem">${cta}</div>
