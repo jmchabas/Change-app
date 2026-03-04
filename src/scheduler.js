@@ -56,14 +56,17 @@ export function startScheduler() {
       console.error('Morning Fitbit sync error:', err.message);
     }
 
-    const yesterday = db.getDailyLog(getYesterdayHST());
-    const wearableYesterday = db.getWearableMetrics(getYesterdayHST());
     const today = getTodayHST();
+    const yesterdayDate = getYesterdayHST();
+    const yesterday = db.getDailyLog(yesterdayDate);
+    const wearableToday = db.getWearableMetrics(today);
+    const wearableYesterday = db.getWearableMetrics(yesterdayDate);
+    const wearable = wearableToday || wearableYesterday;
     const targets = db.getDeliverables(today);
     const logs = db.getRecentLogs(7);
     const trend = computeTrend(logs);
     await sendMessage(chatId, msg.morningBrief({
-      yesterday, targets, trend, wearableYesterday,
+      yesterday, targets, trend, wearable,
     }));
   }, { timezone: TZ });
 

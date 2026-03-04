@@ -36,7 +36,7 @@ export function reflectionStartPrompt(score) {
   return `Got your form.\n\nToday score: ${score}/100.\n\nQuick reflection: what was the main driver of your day?`;
 }
 
-export function morningBrief({ yesterday, targets, trend, wearableYesterday }) {
+export function morningBrief({ yesterday, targets, trend, wearable }) {
   const yn = v => v === 1 ? '✓' : v === 0 ? '✗' : '?';
 
   let scoreBlock = 'No log for yesterday.';
@@ -53,8 +53,8 @@ export function morningBrief({ yesterday, targets, trend, wearableYesterday }) {
   }
 
   const trendLine = trend ? `Trend: ${trend}\n` : '';
-  const wearableLine = wearableYesterday
-    ? `Wearables: sleep ${wearableYesterday.sleep_hours ?? '?'}h · score ${wearableYesterday.sleep_score ?? '?'} · RHR ${wearableYesterday.resting_hr ?? '?'}`
+  const wearableLine = wearable
+    ? `Wearables (${wearable.date}): sleep ${wearable.sleep_hours ?? '?'}h · score ${wearable.sleep_score ?? '?'} · RHR ${wearable.resting_hr ?? '?'}`
     : 'Wearables: not synced';
 
   let targetsBlock = 'No targets set for today. Use /targets to add them.';
