@@ -8,6 +8,49 @@ import * as msg from './messages.js';
 
 const TZ = process.env.TZ || 'America/Los_Angeles';
 
+function shiftDate(dateStr, days) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function getNowMinutesInTz() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+  return (hour * 60) + minute;
+}
+
+function wasSentToday(key, date) {
+  return db.getSetting(`${key}:${date}`) === '1';
+}
+
+function markSentToday(key, date) {
+  db.setSetting(`${key}:${date}`, '1');
+}
+
+async function sendTargetPromptIfNeeded(chatId, date) {
+  if (!chatId) return false;
+  if (wasSentToday('targets_prompt_sent', date)) return false;
+  startTargetSettingForUser(chatId);
+  await sendMessage(chatId, msg.targetPrompt());
+  markSentToday('targets_prompt_sent', date);
+  return true;
+}
+
+async function sendCheckinPromptIfNeeded(chatId, date) {
+  if (!chatId) return false;
+  if (wasSentToday('checkin_prompt_sent', date)) return false;
+  await startCheckinForUser(chatId);
+  markSentToday('checkin_prompt_sent', date);
+  return true;
+}
+
 export function startScheduler() {
 
   // Startup bootstrap sync so wearable data appears without waiting for the next cron tick.
@@ -20,8 +63,8 @@ export function startScheduler() {
     }
   }, 5000);
 
-  // 6:40 AM (daily) — pull latest Fitbit metrics
-  cron.schedule('40 6 * * *', async () => {
+  // 6:30 AM (daily) — pull latest Fitbit metrics before morning message
+  cron.schedule('30 6 * * *', async () => {
     try {
       const result = await syncRecentFitbitData(1);
       if (result?.ok) console.log('Fitbit sync complete');
@@ -30,23 +73,54 @@ export function startScheduler() {
     }
   }, { timezone: TZ });
 
-  // 5:00 PM (daily) — Target setting prompt + gym reminder
-  cron.schedule('0 17 * * *', async () => {
+  // 4:30 PM (daily) — Target setting prompt + gym reminder
+  cron.schedule('30 16 * * *', async () => {
     const chatId = db.getChatId();
-    if (!chatId) return;
-    startTargetSettingForUser(chatId);
-    await sendMessage(chatId, msg.targetPrompt());
+    const date = getTodayHST();
+    try {
+      const sent = await sendTargetPromptIfNeeded(chatId, date);
+      if (sent) console.log('Target prompt sent');
+    } catch (err) {
+      console.error('Target prompt error:', err.message);
+    }
   }, { timezone: TZ });
 
-  // 8:30 PM (daily) — Evening check-in with Claude
-  cron.schedule('30 20 * * *', async () => {
+  // 8:00 PM (daily) — Evening check-in with Claude
+  cron.schedule('0 20 * * *', async () => {
     const chatId = db.getChatId();
-    if (!chatId) return;
-    await startCheckinForUser(chatId);
+    const date = getTodayHST();
+    try {
+      const sent = await sendCheckinPromptIfNeeded(chatId, date);
+      if (sent) console.log('Evening check-in prompt sent');
+    } catch (err) {
+      console.error('Evening check-in prompt error:', err.message);
+    }
   }, { timezone: TZ });
 
-  // 7:00 AM (daily) — Morning brief
-  cron.schedule('0 7 * * *', async () => {
+  // Every 10 min — catch-up sender for missed scheduled prompts (deploy/restart windows).
+  cron.schedule('*/10 * * * *', async () => {
+    const chatId = db.getChatId();
+    if (!chatId) return;
+    const today = getTodayHST();
+    const mins = getNowMinutesInTz();
+    try {
+      // Target prompt catch-up window: 4:30 PM -> 6:00 PM
+      if (mins >= (16 * 60 + 30) && mins <= (18 * 60)) {
+        const sent = await sendTargetPromptIfNeeded(chatId, today);
+        if (sent) console.log('Catch-up: target prompt sent');
+      }
+      // Check-in prompt catch-up window: 8:00 PM -> 10:00 PM
+      if (mins >= (20 * 60) && mins <= (22 * 60)) {
+        const sent = await sendCheckinPromptIfNeeded(chatId, today);
+        if (sent) console.log('Catch-up: check-in prompt sent');
+      }
+    } catch (err) {
+      console.error('Prompt catch-up error:', err.message);
+    }
+  }, { timezone: TZ });
+
+  // 7:20 AM (daily) — Morning brief
+  cron.schedule('20 7 * * *', async () => {
     const chatId = db.getChatId();
     if (!chatId) return;
 
@@ -58,15 +132,20 @@ export function startScheduler() {
 
     const today = getTodayHST();
     const yesterdayDate = getYesterdayHST();
+    const prevDate = shiftDate(yesterdayDate, -1);
     const yesterday = db.getDailyLog(yesterdayDate);
+    const previousDay = db.getDailyLog(prevDate);
     const wearableToday = db.getWearableMetrics(today);
     const wearableYesterday = db.getWearableMetrics(yesterdayDate);
     const wearable = wearableToday || wearableYesterday;
+    const recentWearables = db.getRecentWearableMetrics(7).filter((w) => w?.resting_hr != null);
+    const rhrCurrent = recentWearables[0]?.resting_hr ?? null;
+    const rhrPrevious = recentWearables[1]?.resting_hr ?? null;
     const targets = db.getDeliverables(today);
     const logs = db.getRecentLogs(7);
     const trend = computeTrend(logs);
     await sendMessage(chatId, msg.morningBrief({
-      yesterday, targets, trend, wearable,
+      yesterday, previousDay, targets, trend, wearable, rhrCurrent, rhrPrevious,
     }));
   }, { timezone: TZ });
 
@@ -102,9 +181,9 @@ export function startScheduler() {
   }, { timezone: TZ });
 
   console.log(`Scheduler started (${TZ})`);
-  console.log('  6:40 AM       → Fitbit sync');
-  console.log('  7:00 AM       → Morning brief');
-  console.log('  5:00 PM       → Target setting + gym reminder');
-  console.log('  8:30 PM       → Evening check-in (Claude)');
+  console.log('  6:30 AM       → Fitbit sync');
+  console.log('  7:20 AM       → Morning brief');
+  console.log('  4:30 PM       → Target setting + gym reminder');
+  console.log('  8:00 PM       → Evening check-in (Claude)');
   console.log('  Sunday 5:00 PM → Weekly coaching review (Claude)');
 }

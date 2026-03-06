@@ -1,8 +1,10 @@
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+function formatSleepHours(hours) {
+  const v = Number(hours);
+  if (!Number.isFinite(v) || v <= 0) return '?';
+  const totalMinutes = Math.round(v * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return `${h}h${String(m).padStart(2, '0')}`;
 }
 
 export function welcomeMessage() {
@@ -61,9 +63,9 @@ export function morningBrief({ yesterday, previousDay, targets, trend, wearable,
     const scoreArrow = arrowFromDelta(yesterday.daily_score, previousDay?.daily_score);
     const moodArrow = arrowFromDelta(yesterday.mood_1_10, previousDay?.mood_1_10);
     const rhrArrow = arrowFromDelta(rhrCurrent, rhrPrevious, true);
-    const bedTime = escapeHtml(yesterday.bed_time_text || '?');
+    const bedTime = yesterday.bed_time_text || '?';
     scoreBlock = [
-      `<b>Yesterday:</b> ${yesterday.daily_score ?? '?'}/100${scoreArrow}  mood ${yesterday.mood_1_10 ?? '?'}/10${moodArrow}  RHR ${rhrCurrent ?? '?'}${rhrArrow}${clusterNote}`,
+      `Yesterday: ${yesterday.daily_score ?? '?'}/100${scoreArrow}  mood ${yesterday.mood_1_10 ?? '?'}/10${moodArrow}  RHR ${rhrCurrent ?? '?'}${rhrArrow}${clusterNote}`,
       `Focus ${yn(yesterday.no_escape_media)} (${yesterday.escape_media_minutes ?? '?'}m) · Eating ${yn(yesterday.fixed_eating)} (${yesterday.outside_window_meals ?? '?'} off-window) · Clean Eve ${yn(yesterday.clean_evening)}`,
       `Work ${yn(yesterday.work_win)} · Personal ${yn(yesterday.personal_win)} · Gym ${yn(yesterday.gym)}`,
       `Kids ${yn(yesterday.kids_quality)} · Bed ${yn(yesterday.bed_on_time)} (${bedTime})`,
@@ -72,12 +74,12 @@ export function morningBrief({ yesterday, previousDay, targets, trend, wearable,
 
   const trendLine = trend ? `Trend: ${trend}\n` : '';
   const wearableLine = wearable
-    ? `Wearables (${wearable.date}): sleep ${wearable.sleep_hours ?? '?'}h · score ${wearable.sleep_score ?? '?'}`
+    ? `Wearables (${wearable.date}): sleep ${formatSleepHours(wearable.sleep_hours)} · score ${wearable.sleep_score ?? '?'}`
     : 'Wearables: not synced';
 
   let targetsBlock = 'No targets set for today. Use /targets to add them.';
   if (targets) {
-    targetsBlock = `Today's mission:\n<b>→ Work</b>: ${escapeHtml(targets.work_target)}\n<b>→ Personal</b>: ${escapeHtml(targets.personal_target)}`;
+    targetsBlock = `Today's mission:\n→ Work: ${targets.work_target || '-'}\n→ Personal: ${targets.personal_target || '-'}`;
   }
 
   return `Morning.\n\n${scoreBlock}\n${wearableLine}\n${trendLine}\n${targetsBlock}`;
