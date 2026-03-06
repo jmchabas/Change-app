@@ -1164,7 +1164,23 @@
         });
       }
 
-      function bindFitbitSyncButton(buttonId, statusId) {
+      async function syncFitbitNowOnce() {
+        const res = await fetch('/api/fitbit/sync-now', { method: 'POST' });
+        const body = await res.json();
+        if (!res.ok || !body.ok) throw new Error(body.error || 'Sync failed');
+      }
+
+      async function getTodayWearable() {
+        const today = await safeJsonFetch('/api/today', {});
+        return today?.wearable || null;
+      }
+
+      function delay(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      function bindFitbitSyncButton(buttonId, statusId, options = {}) {
+        const { scoreAware = false } = options;
         const syncBtn = document.getElementById(buttonId);
         if (!syncBtn) return;
         syncBtn.addEventListener('click', async () => {
@@ -1172,24 +1188,39 @@
           syncBtn.disabled = true;
           if (status) status.textContent = 'Syncing...';
           try {
-            const res = await fetch('/api/fitbit/sync-now', { method: 'POST' });
-            const body = await res.json();
-            if (!res.ok || !body.ok) throw new Error(body.error || 'Sync failed');
-            if (status) status.textContent = 'Synced';
-            setTimeout(() => load(), 500);
+            await syncFitbitNowOnce();
+            await load();
+
+            if (scoreAware) {
+              let wearable = await getTodayWearable();
+              if (wearable?.sleep_score == null) {
+                if (status) status.textContent = 'Waiting for Fitbit score... retrying';
+                await delay(8000);
+                await syncFitbitNowOnce();
+                await load();
+                wearable = await getTodayWearable();
+              }
+              if (status) {
+                status.textContent = wearable?.sleep_score != null
+                  ? `Score updated (${wearable.sleep_score})`
+                  : 'Still pending from Fitbit API';
+              }
+            } else if (status) {
+              status.textContent = 'Synced';
+            }
           } catch {
             if (status) status.textContent = 'Sync error';
           } finally {
             syncBtn.disabled = false;
             if (status) {
-              setTimeout(() => { status.textContent = ''; }, 2500);
+              setTimeout(() => { status.textContent = ''; }, 5000);
             }
           }
         });
       }
 
       bindFitbitSyncButton('fitbit-sync-now', 'fitbit-sync-status');
-      bindFitbitSyncButton('fitbit-sync-sleep-now', 'fitbit-sync-sleep-status');
+      bindFitbitSyncButton('fitbit-sync-sleep-now', 'fitbit-sync-sleep-status', { scoreAware: true });
     }
 
     document.getElementById('header-date').textContent = formatHeaderDate(new Date().toISOString().slice(0, 10));
