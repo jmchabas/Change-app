@@ -986,6 +986,20 @@
       });
     }
 
+    async function safeJsonFetch(url, fallback = {}) {
+      try {
+        const res = await fetch(url);
+        const text = await res.text();
+        try {
+          return JSON.parse(text);
+        } catch {
+          return fallback;
+        }
+      } catch {
+        return fallback;
+      }
+    }
+
     async function load() {
       try {
         const [todayRes, weekRes, histRes, reviewsRes, breaksRes, integrationsRes, latestLinkRes, wearablesHistRes] = await Promise.all([
@@ -996,7 +1010,7 @@
           fetch('/api/breaks').then(r => r.json()),
           fetch('/api/integrations').then(r => r.json()),
           fetch('/api/checkin/latest-link').then(r => r.json()),
-          fetch('/api/wearables/history?days=90').then(r => r.json()),
+          safeJsonFetch('/api/wearables/history?days=90', { wearables: [] }),
         ]);
 
         const { log, targets, wearable, date } = todayRes;
@@ -1004,7 +1018,9 @@
         const { reviews } = reviewsRes;
         const { breaks } = breaksRes;
         const allLogs = histRes.logs;
-        const allWearables = wearablesHistRes.wearables || [];
+        const allWearables = (wearablesHistRes.wearables && wearablesHistRes.wearables.length)
+          ? wearablesHistRes.wearables
+          : (wearables || []);
         const fitbit = integrationsRes.fitbit;
         const latestLink = latestLinkRes;
         const monthlyLogs = getFilteredByRange(allLogs, 'month');
