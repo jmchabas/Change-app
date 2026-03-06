@@ -173,16 +173,16 @@ async function fitbitGet(path) {
 
 function parseSleepHours(sleepPayload) {
   if (sleepPayload?.summary?.totalMinutesAsleep != null) {
-    return Math.round((sleepPayload.summary.totalMinutesAsleep / 60) * 10) / 10;
+    return sleepPayload.summary.totalMinutesAsleep / 60;
   }
 
   const mainSleep = sleepPayload?.sleep?.find((s) => s.mainSleep) || sleepPayload?.sleep?.[0];
   if (mainSleep?.minutesAsleep != null) {
-    return Math.round((mainSleep.minutesAsleep / 60) * 10) / 10;
+    return mainSleep.minutesAsleep / 60;
   }
 
   if (mainSleep?.duration != null) {
-    return Math.round((mainSleep.duration / 3_600_000) * 10) / 10;
+    return mainSleep.duration / 3_600_000;
   }
 
   return null;
@@ -195,12 +195,28 @@ function parseSleepScore(sleepScorePayload, sleepPayload) {
     ?? null;
 
   if (v != null && Number.isFinite(Number(v))) return Number(v);
+  // Do NOT fallback to efficiency; Fitbit "sleep efficiency" is not the same metric
+  // as app "sleep score" and can be materially different.
+  return null;
+}
 
-  const fallback = sleepPayload?.sleep?.find((s) => s.mainSleep)?.efficiency
-    ?? sleepPayload?.sleep?.[0]?.efficiency
-    ?? null;
+async function fetchSleepScoreWithCatchup(date, attempts = 3) {
+  const delaysMs = [0, 2000, 5000];
+  let lastPayload = null;
 
-  return fallback != null && Number.isFinite(Number(fallback)) ? Number(fallback) : null;
+  for (let i = 0; i < attempts; i++) {
+    if (delaysMs[i] > 0) await sleep(delaysMs[i]);
+    try {
+      const payload = await fitbitGet(`/1.2/user/-/sleep/score/date/${date}.json`);
+      lastPayload = payload;
+      const score = parseSleepScore(payload, null);
+      if (score != null) return { score, payload, attemptsUsed: i + 1 };
+    } catch {
+      // Endpoint can be temporarily unavailable; keep trying.
+    }
+  }
+
+  return { score: null, payload: lastPayload, attemptsUsed: attempts };
 }
 
 function parseRestingHr(heartPayload) {
@@ -306,9 +322,24 @@ export async function syncFitbitDate(date) {
   }
 
   const sleepHours = sleepPayload ? parseSleepHours(sleepPayload) : existing.sleep_hours ?? null;
-  const sleepScore = sleepPayload
+  let parsedSleepScore = sleepPayload
     ? parseSleepScore(sleepScorePayload, sleepPayload)
-    : existing.sleep_score ?? null;
+    : null;
+
+  // Fitbit often posts duration before sleep score; retry briefly for fresh dates.
+  const shouldRetryScore = sleepPayload && parsedSleepScore == null && date >= getDateDaysAgo(1);
+  let scoreCatchupAttempts = 0;
+  if (shouldRetryScore) {
+    const catchup = await fetchSleepScoreWithCatchup(date, 3);
+    scoreCatchupAttempts = catchup.attemptsUsed;
+    if (catchup.payload) sleepScorePayload = catchup.payload;
+    if (catchup.score != null) parsedSleepScore = catchup.score;
+  }
+  // For a new daily sleep payload, never carry an old score forward.
+  // If Fitbit score endpoint is unavailable for the date, surface null instead of stale data.
+  const sleepScore = sleepPayload
+    ? parsedSleepScore
+    : (existing.sleep_score ?? null);
   const restingHr = heartPayload ? parseRestingHr(heartPayload) : existing.resting_hr ?? null;
 
   const rawSleepJson = sleepPayload
@@ -336,7 +367,12 @@ export async function syncFitbitDate(date) {
 
   return {
     partial: Boolean((sleepErr || heartErr) && (sleepPayload || heartPayload || existing.date)),
-    warnings: [sleepErr, heartErr].filter(Boolean).map((err) => summarizeFitbitError(err)),
+    warnings: [
+      ...[sleepErr, heartErr].filter(Boolean).map((err) => summarizeFitbitError(err)),
+      ...(shouldRetryScore && parsedSleepScore == null
+        ? [`Sleep score still pending after ${scoreCatchupAttempts} retry attempt(s)`]
+        : []),
+    ],
   };
 }
 

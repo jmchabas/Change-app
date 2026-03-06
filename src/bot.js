@@ -4,11 +4,21 @@ import { getTodayHST, getTomorrowHST } from './scoring.js';
 import * as msg from './messages.js';
 import { startCheckin, hasActiveConversation, continueCheckin, clearConversation } from './claude.js';
 import { createCheckinToken } from './checkin-link.js';
+import { syncRecentFitbitData } from './fitbit.js';
 
 let bot;
 
 // In-memory target-setting state: chatId → { type: 'targets_work'|'targets_personal', workTarget?: string }
 const pendingTargets = new Map();
+const TARGET_FLOW_TTL_MS = 90 * 60 * 1000;
+
+function setPendingTargets(chatId) {
+  pendingTargets.set(chatId, {
+    type: 'targets_work',
+    workTarget: '',
+    expiresAt: Date.now() + TARGET_FLOW_TTL_MS,
+  });
+}
 
 export function createBot(token) {
   bot = new Bot(token);
@@ -32,9 +42,37 @@ export function createBot(token) {
     await ctx.reply(msg.weekSummary(logs));
   });
 
+  bot.command('syncfitbit', async (ctx) => {
+    await ctx.reply('Syncing Fitbit now (recent days)...');
+    try {
+      const out = await syncRecentFitbitData(3);
+      await ctx.reply(
+        `Fitbit sync done: ${out.successCount} day(s) synced, ${out.warningsCount} warning(s), ${out.errorsCount} error(s).`
+      );
+    } catch (err) {
+      await ctx.reply(`Fitbit sync failed: ${err.message}`);
+    }
+  });
+
+  bot.command('status', async (ctx) => {
+    const today = getTodayHST();
+    const targetsSent = db.getSetting(`targets_prompt_sent:${today}`) === '1';
+    const checkinSent = db.getSetting(`checkin_prompt_sent:${today}`) === '1';
+    const pending = pendingTargets.get(ctx.chat.id);
+    const pendingState = pending
+      ? `pending target step: ${pending.type === 'targets_work' ? 'work' : 'personal'}`
+      : 'pending target step: none';
+    await ctx.reply([
+      `Status (${today})`,
+      `• 4:30pm target prompt sent: ${targetsSent ? 'yes' : 'no'}`,
+      `• 8:00pm check-in prompt sent: ${checkinSent ? 'yes' : 'no'}`,
+      `• ${pendingState}`,
+    ].join('\n'));
+  });
+
   bot.command('targets', async (ctx) => {
     db.setChatId(ctx.chat.id);
-    pendingTargets.set(ctx.chat.id, { type: 'targets_work' });
+    setPendingTargets(ctx.chat.id);
     await ctx.reply(msg.targetPrompt());
   });
 
@@ -45,24 +83,6 @@ export function createBot(token) {
     if (text.startsWith('/')) return;
 
     db.setChatId(chatId);
-
-    // --- Target-setting flow (simple 2-step, no Claude needed) ---
-    const pending = pendingTargets.get(chatId);
-    if (pending) {
-      if (pending.type === 'targets_work') {
-        pending.workTarget = text;
-        pending.type = 'targets_personal';
-        await ctx.reply(msg.targetPersonalPrompt(text));
-        return;
-      }
-      if (pending.type === 'targets_personal') {
-        const { workTarget } = pending;
-        db.upsertDeliverables(getTomorrowHST(), workTarget, text);
-        pendingTargets.delete(chatId);
-        await ctx.reply(msg.targetConfirmation(workTarget, text));
-        return;
-      }
-    }
 
     // --- Evening reflection (Claude-powered, after form submission) ---
     if (hasActiveConversation(chatId)) {
@@ -78,8 +98,28 @@ export function createBot(token) {
       return;
     }
 
+    // --- Target-setting flow (simple 2-step, no Claude needed) ---
+    const pending = pendingTargets.get(chatId);
+    if (pending) {
+      if (!pending.expiresAt || Date.now() > pending.expiresAt) {
+        pendingTargets.delete(chatId);
+      } else if (pending.type === 'targets_work') {
+        pending.workTarget = text;
+        pending.type = 'targets_personal';
+        pending.expiresAt = Date.now() + TARGET_FLOW_TTL_MS;
+        await ctx.reply(msg.targetPersonalPrompt(text));
+        return;
+      } else if (pending.type === 'targets_personal') {
+        const { workTarget } = pending;
+        db.upsertDeliverables(getTomorrowHST(), workTarget, text);
+        pendingTargets.delete(chatId);
+        await ctx.reply(msg.targetConfirmation(workTarget, text));
+        return;
+      }
+    }
+
     // Unrecognized message outside any active conversation
-    await ctx.reply('Use /targets to set tomorrow targets. Check-in link arrives at 8:30pm.');
+    await ctx.reply('Use /targets to set tomorrow targets. Check-in link arrives at 8:00pm.');
   });
 
   bot.catch((err) => {
@@ -94,16 +134,20 @@ export function getBot() {
   return bot;
 }
 
-export async function sendMessage(chatId, text) {
+export async function sendMessage(chatId, text, options = {}) {
   if (!bot) return;
   try {
-    await bot.api.sendMessage(chatId, text);
+    const payload = { disable_web_page_preview: true };
+    if (options.html) payload.parse_mode = 'HTML';
+    await bot.api.sendMessage(chatId, text, payload);
   } catch (err) {
     console.error('Failed to send message:', err.message);
   }
 }
 
 export function startCheckinForUser(chatId) {
+  // Avoid target-setting prompts colliding with evening reflection messages.
+  pendingTargets.delete(chatId);
   const baseUrl = process.env.APP_BASE_URL || 'http://localhost:3000';
   const token = createCheckinToken({ chatId, date: getTodayHST(), ttlHours: 24 });
   const link = `${baseUrl.replace(/\/$/, '')}/checkin?token=${encodeURIComponent(token)}`;
@@ -111,7 +155,7 @@ export function startCheckinForUser(chatId) {
 }
 
 export function startTargetSettingForUser(chatId) {
-  pendingTargets.set(chatId, { type: 'targets_work' });
+  setPendingTargets(chatId);
 }
 
 export async function startReflectionForUser(chatId, checkinData) {
