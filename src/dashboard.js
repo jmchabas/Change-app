@@ -24,6 +24,12 @@ function sanitizeWearable(row) {
   return safe;
 }
 
+function parseBoolOrNull(value) {
+  if (value === true || value === 1 || value === '1') return true;
+  if (value === false || value === 0 || value === '0') return false;
+  return null;
+}
+
 router.get('/api/today', (req, res) => {
   const today = getTodayHST();
   const log = db.getDailyLog(today);
@@ -43,6 +49,15 @@ router.get('/api/week', (req, res) => {
     ? Math.round((logs.reduce((s, l) => s + (l.mood_1_10 || 0), 0) / logs.filter(l => l.mood_1_10).length) * 10) / 10
     : null;
   res.json({ logs, wearables, trend, avg, avgMood });
+});
+
+router.get('/api/wearables/history', (req, res) => {
+  const daysRaw = Number(req.query.days);
+  const days = Number.isFinite(daysRaw) && daysRaw > 0
+    ? Math.min(Math.round(daysRaw), 365)
+    : 60;
+  const wearables = db.getRecentWearableMetrics(days).map(sanitizeWearable);
+  res.json({ wearables, days });
 });
 
 router.get('/api/history', (req, res) => {
@@ -155,14 +170,16 @@ router.post('/api/checkin/submit', async (req, res) => {
     const date = payload.date;
     const chatId = payload.chatId;
 
-    const cleanEvening = form?.clean_evening === true || form?.clean_evening === 1 || form?.clean_evening === '1';
-    const gym = form?.gym === true || form?.gym === 1 || form?.gym === '1';
-    const kidsQuality = form?.kids_quality === true || form?.kids_quality === 1 || form?.kids_quality === '1';
-    const workWin = form?.work_win === true || form?.work_win === 1 || form?.work_win === '1';
-    const personalWin = form?.personal_win === true || form?.personal_win === 1 || form?.personal_win === '1';
+    const cleanEvening = parseBoolOrNull(form?.clean_evening) === true;
+    const gym = parseBoolOrNull(form?.gym) === true;
+    const kidsQuality = parseBoolOrNull(form?.kids_quality) === true;
+    const workWin = parseBoolOrNull(form?.work_win);
+    const personalWin = parseBoolOrNull(form?.personal_win);
     const subs = Array.isArray(form?.clean_evening_substances) ? form.clean_evening_substances : [];
+    const supportStack = Array.isArray(form?.support_stack) ? form.support_stack : [];
 
     const scored = computeDetailedScores({
+      date,
       escape_media_minutes: form?.escape_media_minutes,
       outside_window_meals: form?.outside_window_meals,
       clean_evening: cleanEvening,
@@ -178,12 +195,12 @@ router.post('/api/checkin/submit', async (req, res) => {
     if (scored.no_escape_media === 0) breakReasons.push({ habit: 'no_escape_media', reason: `${scored.escape_media_minutes ?? '?'} min escape media` });
     if (scored.fixed_eating === 0) breakReasons.push({ habit: 'fixed_eating', reason: `${scored.outside_window_meals ?? '?'} meals outside windows` });
     if (!cleanEvening) breakReasons.push({ habit: 'clean_evening', reason: `Substances: ${(subs.join(', ') || 'unspecified')}` });
-    if (!workWin) breakReasons.push({ habit: 'work_win', reason: 'Work target not achieved' });
-    if (!personalWin) breakReasons.push({ habit: 'personal_win', reason: 'Personal target not achieved' });
+    if (scored.work_win === 0) breakReasons.push({ habit: 'work_win', reason: 'Work target not achieved' });
+    if (scored.personal_win === 0) breakReasons.push({ habit: 'personal_win', reason: 'Personal target not achieved' });
 
     db.upsertDailyLog({
-      date,
       ...scored,
+      date,
       clean_evening_alcohol: subs.includes('Alcohol') ? 1 : 0,
       clean_evening_weed: subs.includes('Weed') ? 1 : 0,
       clean_evening_other_text: form?.clean_evening_other_text || '',
@@ -193,6 +210,10 @@ router.post('/api/checkin/submit', async (req, res) => {
       mood_1_10: scored.mood_1_10,
       checkin_completed_at: new Date().toISOString(),
       stress_note: form?.stress_note || '',
+      coffee: supportStack.includes('coffee') ? 1 : 0,
+      adhd_meds: supportStack.includes('adhd_meds') ? 1 : 0,
+      gut_bacteria_mgr: supportStack.includes('gut_bacteria_mgr') ? 1 : 0,
+      gut_mvmt: supportStack.includes('gut_mvmt') ? 1 : 0,
     });
 
     if (breakReasons.length > 0) {
@@ -200,17 +221,21 @@ router.post('/api/checkin/submit', async (req, res) => {
     }
 
     const reflectionContext = {
-      date,
       ...scored,
+      date,
       clean_evening: cleanEvening ? 1 : 0,
       clean_evening_substances: subs.join(', '),
-      work_win: workWin ? 1 : 0,
-      personal_win: personalWin ? 1 : 0,
+      work_win: scored.work_win,
+      personal_win: scored.personal_win,
       gym: gym ? 1 : 0,
       gym_type: form?.gym_type || '',
       kids_quality: kidsQuality ? 1 : 0,
       kids_quality_note: form?.kids_quality_note || '',
       bed_time_text: form?.bed_time_text || '',
+      coffee: supportStack.includes('coffee') ? 1 : 0,
+      adhd_meds: supportStack.includes('adhd_meds') ? 1 : 0,
+      gut_bacteria_mgr: supportStack.includes('gut_bacteria_mgr') ? 1 : 0,
+      gut_mvmt: supportStack.includes('gut_mvmt') ? 1 : 0,
     };
 
     await startReflectionForUser(chatId, reflectionContext);

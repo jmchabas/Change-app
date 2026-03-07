@@ -5,6 +5,7 @@ import { computeDetailedScores } from './scoring.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DATABASE_PATH || join(__dirname, '..', 'lifeos.db');
+const TZ = process.env.TZ || 'America/Los_Angeles';
 
 let db;
 
@@ -130,6 +131,107 @@ function repairHistoricalBedtimeScoring() {
   }
 }
 
+function dateFromIsoInTz(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}
+
+function repairNullDateLogs() {
+  const rows = getDb().prepare(`
+    SELECT rowid, *
+    FROM daily_log
+    WHERE date IS NULL
+    ORDER BY checkin_completed_at DESC, created_at DESC
+  `).all();
+
+  if (!rows.length) return;
+
+  const updateDateStmt = getDb().prepare('UPDATE daily_log SET date = ?, updated_at = datetime(\'now\') WHERE rowid = ?');
+  const deleteRowStmt = getDb().prepare('DELETE FROM daily_log WHERE rowid = ?');
+  const findByDateStmt = getDb().prepare('SELECT rowid, checkin_completed_at FROM daily_log WHERE date = ?');
+  const upsertStmt = getDb().prepare(`
+    INSERT INTO daily_log (
+      date, no_escape_media, fixed_eating, clean_evening, work_win, personal_win, gym, kids_quality,
+      bed_on_time, total_score, mood, stress_note, created_at, updated_at,
+      escape_media_minutes, outside_window_meals, clean_evening_alcohol, clean_evening_weed, clean_evening_other_text,
+      gym_type, kids_quality_note, bed_time_text, bed_time_minutes, mood_1_10,
+      behavior_score, state_score, daily_score, checkin_completed_at,
+      coffee, adhd_meds, gut_bacteria_mgr, gut_mvmt
+    ) VALUES (
+      @date, @no_escape_media, @fixed_eating, @clean_evening, @work_win, @personal_win, @gym, @kids_quality,
+      @bed_on_time, @total_score, @mood, @stress_note, @created_at, datetime('now'),
+      @escape_media_minutes, @outside_window_meals, @clean_evening_alcohol, @clean_evening_weed, @clean_evening_other_text,
+      @gym_type, @kids_quality_note, @bed_time_text, @bed_time_minutes, @mood_1_10,
+      @behavior_score, @state_score, @daily_score, @checkin_completed_at,
+      @coffee, @adhd_meds, @gut_bacteria_mgr, @gut_mvmt
+    )
+    ON CONFLICT(date) DO UPDATE SET
+      no_escape_media = excluded.no_escape_media,
+      fixed_eating = excluded.fixed_eating,
+      clean_evening = excluded.clean_evening,
+      work_win = excluded.work_win,
+      personal_win = excluded.personal_win,
+      gym = excluded.gym,
+      kids_quality = excluded.kids_quality,
+      bed_on_time = excluded.bed_on_time,
+      total_score = excluded.total_score,
+      mood = excluded.mood,
+      stress_note = excluded.stress_note,
+      escape_media_minutes = excluded.escape_media_minutes,
+      outside_window_meals = excluded.outside_window_meals,
+      clean_evening_alcohol = excluded.clean_evening_alcohol,
+      clean_evening_weed = excluded.clean_evening_weed,
+      clean_evening_other_text = excluded.clean_evening_other_text,
+      gym_type = excluded.gym_type,
+      kids_quality_note = excluded.kids_quality_note,
+      bed_time_text = excluded.bed_time_text,
+      bed_time_minutes = excluded.bed_time_minutes,
+      mood_1_10 = excluded.mood_1_10,
+      behavior_score = excluded.behavior_score,
+      state_score = excluded.state_score,
+      daily_score = excluded.daily_score,
+      checkin_completed_at = excluded.checkin_completed_at,
+      coffee = excluded.coffee,
+      adhd_meds = excluded.adhd_meds,
+      gut_bacteria_mgr = excluded.gut_bacteria_mgr,
+      gut_mvmt = excluded.gut_mvmt,
+      updated_at = datetime('now')
+  `);
+
+  let repaired = 0;
+  for (const row of rows) {
+    const guessedDate = dateFromIsoInTz(row.checkin_completed_at || row.created_at);
+    if (!guessedDate) continue;
+
+    const existing = findByDateStmt.get(guessedDate);
+    if (!existing) {
+      updateDateStmt.run(guessedDate, row.rowid);
+      repaired++;
+      continue;
+    }
+
+    // Conflict: keep the newer completion for that day.
+    const rowTs = Date.parse(row.checkin_completed_at || row.created_at || '');
+    const existingTs = Date.parse(existing.checkin_completed_at || '');
+    if (Number.isFinite(rowTs) && (!Number.isFinite(existingTs) || rowTs >= existingTs)) {
+      upsertStmt.run({
+        ...row,
+        date: guessedDate,
+      });
+    }
+    deleteRowStmt.run(row.rowid);
+    repaired++;
+  }
+
+  if (repaired > 0) {
+    console.log(`Repaired null-date daily_log rows: ${repaired}`);
+  }
+}
+
 export function initDb() {
   db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');
@@ -194,6 +296,7 @@ export function initDb() {
   `);
 
   ensureDailyLogColumns();
+  repairNullDateLogs();
   repairHistoricalBedtimeScoring();
   return db;
 }
