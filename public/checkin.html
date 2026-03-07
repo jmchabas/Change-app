@@ -98,7 +98,7 @@
       </div>
 
       <div class="field">
-        <label>Clean evening?</label>
+        <label>Clean Eve?</label>
         <div class="inline">
           <label class="chip"><input type="radio" name="clean_evening" value="1" required /> Yes</label>
           <label class="chip"><input type="radio" name="clean_evening" value="0" /> No</label>
@@ -119,6 +119,7 @@
       <div class="row">
         <div class="field">
           <label>Work win achieved?</label>
+          <div class="small weekend-optional-note" style="display:none">Optional on weekends (Fri-Sun) — counts only if filled.</div>
           <div class="small" id="work_target_hint">No target set.</div>
           <div class="inline" style="margin-top:6px">
             <label class="chip"><input type="radio" name="work_win" value="1" required /> Yes</label>
@@ -127,6 +128,7 @@
         </div>
         <div class="field">
           <label>Personal win achieved?</label>
+          <div class="small weekend-optional-note" style="display:none">Optional on weekends (Fri-Sun) — counts only if filled.</div>
           <div class="small" id="personal_target_hint">No target set.</div>
           <div class="inline" style="margin-top:6px">
             <label class="chip"><input type="radio" name="personal_win" value="1" required /> Yes</label>
@@ -168,6 +170,7 @@
       <div class="row">
         <div class="field">
           <label>Time in bed (US format)</label>
+          <div class="small weekend-optional-note" style="display:none">Optional on weekends (Fri-Sun) — counts only if filled.</div>
           <input type="text" id="bed_time_text" placeholder="9.25pm or 9:25pm" required />
         </div>
         <div class="field">
@@ -182,10 +185,25 @@
       </div>
 
       <div class="field">
+        <label>Daily stack (multiple choice)</label>
+        <div class="inline">
+          <label class="chip"><input type="checkbox" class="stack-item" value="coffee" /> Drank coffee</label>
+          <label class="chip"><input type="checkbox" class="stack-item" value="adhd_meds" /> Took ADHD meds</label>
+          <label class="chip"><input type="checkbox" class="stack-item" value="gut_bacteria_mgr" /> Took gut bacteria mgr</label>
+          <label class="chip"><input type="checkbox" class="stack-item" value="gut_mvmt" /> Took gut mvmt</label>
+        </div>
+      </div>
+
+      <div class="field">
         <button type="submit" id="submit_btn">Save check-in</button>
       </div>
       <div id="result"></div>
     </form>
+
+    <div class="card" style="text-align:center;">
+      <a href="/scoring.html" target="_blank" rel="noopener noreferrer" style="color: var(--blue); font-weight: 600;">How scoring works</a>
+      <div class="small" style="margin-top:6px;">Open the scoring guide page.</div>
+    </div>
   </div>
 
   <script>
@@ -204,6 +222,36 @@
       return pick(name) === '1';
     }
 
+    function boolOrNullVal(name) {
+      const v = pick(name);
+      if (v === null) return null;
+      return v === '1';
+    }
+
+    function isWeekendDate(dateStr) {
+      if (!dateStr) return false;
+      const d = new Date(`${dateStr}T00:00:00Z`);
+      if (Number.isNaN(d.getTime())) return false;
+      const day = d.getUTCDay();
+      return day === 5 || day === 6 || day === 0;
+    }
+
+    function setRadioGroupRequired(name, required) {
+      const radios = Array.from(document.querySelectorAll(`input[name="${name}"]`));
+      radios.forEach((r) => { r.required = false; });
+      if (required && radios[0]) radios[0].required = true;
+    }
+
+    function setWeekendOptionalMode(dateStr) {
+      const weekend = isWeekendDate(dateStr);
+      document.querySelectorAll('.weekend-optional-note').forEach((el) => {
+        el.style.display = weekend ? 'block' : 'none';
+      });
+      setRadioGroupRequired('work_win', !weekend);
+      setRadioGroupRequired('personal_win', !weekend);
+      document.getElementById('bed_time_text').required = !weekend;
+    }
+
     function setRadios(name, val) {
       if (val == null) return;
       const target = String(val);
@@ -213,6 +261,10 @@
 
     function substancesList() {
       return Array.from(document.querySelectorAll('.substance:checked')).map((el) => el.value);
+    }
+
+    function stackList() {
+      return Array.from(document.querySelectorAll('.stack-item:checked')).map((el) => el.value);
     }
 
     function updateConditionalSections() {
@@ -235,6 +287,7 @@
       }
 
       document.getElementById('meta').textContent = `Date: ${data.date} • You can edit and resubmit this day.`;
+      setWeekendOptionalMode(data.date);
 
       if (data.targets) {
         document.getElementById('work_target_hint').textContent = data.targets.work_target
@@ -268,6 +321,10 @@
           moodValue.textContent = String(log.mood_1_10);
         }
         if (log.stress_note) document.getElementById('stress_note').value = log.stress_note;
+        if (log.coffee) document.querySelector('.stack-item[value="coffee"]').checked = true;
+        if (log.adhd_meds) document.querySelector('.stack-item[value="adhd_meds"]').checked = true;
+        if (log.gut_bacteria_mgr) document.querySelector('.stack-item[value="gut_bacteria_mgr"]').checked = true;
+        if (log.gut_mvmt) document.querySelector('.stack-item[value="gut_mvmt"]').checked = true;
       }
 
       updateConditionalSections();
@@ -294,8 +351,8 @@
           clean_evening: boolVal('clean_evening'),
           clean_evening_substances: substancesList(),
           clean_evening_other_text: document.getElementById('clean_evening_other_text').value.trim(),
-          work_win: boolVal('work_win'),
-          personal_win: boolVal('personal_win'),
+          work_win: boolOrNullVal('work_win'),
+          personal_win: boolOrNullVal('personal_win'),
           gym: boolVal('gym'),
           gym_type: boolVal('gym') ? document.getElementById('gym_type').value : '',
           kids_quality: boolVal('kids_quality'),
@@ -303,6 +360,7 @@
           bed_time_text: document.getElementById('bed_time_text').value.trim(),
           mood_1_10: moodSlider.value,
           stress_note: document.getElementById('stress_note').value.trim(),
+          support_stack: stackList(),
         },
       };
 

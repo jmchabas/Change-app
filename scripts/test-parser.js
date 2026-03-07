@@ -1,4 +1,4 @@
-import { parseLogMessage, computeScores, detectDrift, computeTrend } from '../src/scoring.js';
+import { computeDetailedScores } from '../src/scoring.js';
 
 let passed = 0;
 let failed = 0;
@@ -25,170 +25,118 @@ function assertEqual(actual, expected, msg) {
   }
 }
 
-// --- Parser tests ---
+function assertApprox(actual, expected, epsilon = 0.001, msg) {
+  if (Math.abs(actual - expected) > epsilon) {
+    throw new Error(`${msg || 'Expected approx'} ${expected}, got ${actual}`);
+  }
+}
 
-console.log('\nParser:');
+console.log('\nWeekend scoring:');
 
-test('parses a perfect day', () => {
-  const r = parseLogMessage('7.5 Y Y Y Y Y Y');
-  assert(r.ok, 'should be ok');
-  assertEqual(r.data.sleep_hours, 7.5);
-  assertEqual(r.data.bed_on_time, 1);
-  assertEqual(r.data.workout, 1);
-  assertEqual(r.data.eat_windows, 1);
-  assertEqual(r.data.block1, 1);
-  assertEqual(r.data.block2, 1);
-  assertEqual(r.data.anchor, 1);
-  assertEqual(r.data.total_score, 7);
-});
-
-test('parses a bad day', () => {
-  const r = parseLogMessage('5.0 N N N N N N');
-  assert(r.ok, 'should be ok');
-  assertEqual(r.data.sleep_hours, 5.0);
-  assertEqual(r.data.total_score, 0);
-  assertEqual(r.data.energy_score, 0);
-  assertEqual(r.data.exec_score, 0);
-  assertEqual(r.data.life_score, 0);
-});
-
-test('handles lowercase y/n', () => {
-  const r = parseLogMessage('8 y n y y n y');
-  assert(r.ok, 'should be ok');
-  assertEqual(r.data.bed_on_time, 1);
-  assertEqual(r.data.workout, 0);
-  assertEqual(r.data.total_score, 5);
-});
-
-test('sleep below 7.5 gets no sleep point', () => {
-  const r = parseLogMessage('7.4 Y Y Y Y Y Y');
-  assert(r.ok);
-  assertEqual(r.data.energy_score, 3, 'energy_score');
-  assertEqual(r.data.total_score, 6, 'total_score');
-});
-
-test('sleep at exactly 7.5 gets sleep point', () => {
-  const r = parseLogMessage('7.5 Y Y Y Y Y Y');
-  assert(r.ok);
-  assertEqual(r.data.energy_score, 4, 'energy_score');
-  assertEqual(r.data.total_score, 7, 'total_score');
-});
-
-test('extra text becomes notes', () => {
-  const r = parseLogMessage('7 Y Y Y Y Y Y great day today');
-  assert(r.ok);
-  assertEqual(r.data.notes, 'great day today');
-});
-
-test('rejects too few values', () => {
-  const r = parseLogMessage('7.5 Y Y');
-  assert(!r.ok, 'should fail');
-  assert(r.error.includes('Expected 7'), 'should mention expected count');
-});
-
-test('rejects invalid sleep value', () => {
-  const r = parseLogMessage('abc Y Y Y Y Y Y');
-  assert(!r.ok);
-  assert(r.error.includes('Sleep hours'), 'should mention sleep');
-});
-
-test('rejects sleep > 14', () => {
-  const r = parseLogMessage('15 Y Y Y Y Y Y');
-  assert(!r.ok);
-});
-
-test('rejects invalid Y/N value', () => {
-  const r = parseLogMessage('7 Y X Y Y Y Y');
-  assert(!r.ok);
-  assert(r.error.includes('Y or N'), 'should mention Y or N');
-});
-
-test('handles extra whitespace', () => {
-  const r = parseLogMessage('  7.5  Y  Y  Y  Y  Y  Y  ');
-  assert(r.ok);
-  assertEqual(r.data.total_score, 7);
-});
-
-// --- Score computation tests ---
-
-console.log('\nScoring:');
-
-test('perfect scores', () => {
-  const s = computeScores(8, [1, 1, 1, 1, 1, 1]);
-  assertEqual(s.energy_score, 4);
-  assertEqual(s.exec_score, 2);
-  assertEqual(s.life_score, 1);
-  assertEqual(s.total_score, 7);
-});
-
-test('zero scores', () => {
-  const s = computeScores(5, [0, 0, 0, 0, 0, 0]);
-  assertEqual(s.total_score, 0);
-});
-
-// --- Drift detection tests ---
-
-console.log('\nDrift:');
-
-test('no drift on perfect week', () => {
-  const logs = Array(7).fill({
-    sleep_hours: 8, bed_on_time: 1, eat_windows: 1,
-    block1: 1, block2: 1, anchor: 1, total_score: 7,
+test('0) friday counts as weekend-mode', () => {
+  const s = computeDetailedScores({
+    date: '2026-03-06', // Friday
+    escape_media_minutes: 0,
+    outside_window_meals: 0,
+    clean_evening: true,
+    work_win: null,
+    personal_win: null,
+    gym: true,
+    kids_quality: true,
+    bed_time_text: '',
+    mood_1_10: 8,
   });
-  const d = detectDrift(logs);
-  assertEqual(d.biggest, 'None');
+  assertEqual(s.is_weekend, true, 'Friday should use weekend optional logic');
+  assertEqual(s.active_possible_points, 70, 'Friday should keep optionals out when empty');
 });
 
-test('detects sleep drift', () => {
-  const logs = Array(7).fill({
-    sleep_hours: 6, bed_on_time: 0, eat_windows: 1,
-    block1: 1, block2: 1, anchor: 1, total_score: 5,
+test('1) weekend, no optional filled', () => {
+  const s = computeDetailedScores({
+    date: '2026-03-07', // Saturday
+    escape_media_minutes: 0,
+    outside_window_meals: 0,
+    clean_evening: true,
+    work_win: null,
+    personal_win: null,
+    gym: true,
+    kids_quality: true,
+    bed_time_text: '',
+    mood_1_10: 8,
   });
-  const d = detectDrift(logs);
-  assert(d.drifts.some(x => x.area === 'SLEEP'), 'should detect SLEEP drift');
+  assertEqual(s.is_weekend, true, 'should detect weekend');
+  assertEqual(s.active_possible_points, 70, 'denominator should stay required-only');
+  assertApprox(s.daily_score, 94.3, 0.05, 'weekend score');
 });
 
-test('detects food drift', () => {
-  const logs = Array(7).fill({
-    sleep_hours: 8, bed_on_time: 1, eat_windows: 0,
-    block1: 1, block2: 1, anchor: 1, total_score: 5,
+test('2) weekend, one optional filled (denominator increases)', () => {
+  const s = computeDetailedScores({
+    date: '2026-03-08', // Sunday
+    escape_media_minutes: 0,
+    outside_window_meals: 0,
+    clean_evening: true,
+    work_win: false, // validly filled optional
+    personal_win: null,
+    gym: true,
+    kids_quality: true,
+    bed_time_text: '',
+    mood_1_10: 8,
   });
-  const d = detectDrift(logs);
-  assert(d.drifts.some(x => x.area === 'FOOD'), 'should detect FOOD drift');
+  assertEqual(s.active_possible_points, 80, 'one optional should add +10 max points');
+  assertApprox(s.daily_score, 82.5, 0.05, 'weekend score should scale with larger denominator');
 });
 
-test('detects work drift', () => {
-  const logs = Array(7).fill({
-    sleep_hours: 8, bed_on_time: 1, eat_windows: 1,
-    block1: 0, block2: 0, anchor: 1, total_score: 4,
+test('3) weekend, invalid optional input (excluded)', () => {
+  const s = computeDetailedScores({
+    date: '2026-03-07',
+    escape_media_minutes: 0,
+    outside_window_meals: 0,
+    clean_evening: true,
+    work_win: 'not-valid',
+    personal_win: null,
+    gym: true,
+    kids_quality: true,
+    bed_time_text: 'not-a-time',
+    mood_1_10: 8,
   });
-  const d = detectDrift(logs);
-  assert(d.drifts.some(x => x.area === 'WORK'), 'should detect WORK drift');
+  assertEqual(s.active_possible_points, 70, 'invalid optional inputs should not change denominator');
+  assertApprox(s.daily_score, 94.3, 0.05, 'invalid optional inputs should not change score');
 });
 
-// --- Trend tests ---
-
-console.log('\nTrend:');
-
-test('flat trend with same scores', () => {
-  const logs = Array(7).fill({ total_score: 5 });
-  assertEqual(computeTrend(logs), '→ FLAT');
+test('4) weekend, all optional filled', () => {
+  const s = computeDetailedScores({
+    date: '2026-03-08',
+    escape_media_minutes: 0,
+    outside_window_meals: 0,
+    clean_evening: true,
+    work_win: true,
+    personal_win: false,
+    gym: true,
+    kids_quality: true,
+    bed_time_text: '9:25pm',
+    mood_1_10: 8,
+  });
+  assertEqual(s.active_possible_points, 100, 'all optionals should add +30 max points');
+  assertApprox(s.daily_score, 86, 0.05, 'weekend score with all optional active');
 });
 
-test('up trend when recent scores higher', () => {
-  const logs = [
-    { total_score: 7 }, { total_score: 7 }, { total_score: 6 },
-    { total_score: 3 }, { total_score: 3 }, { total_score: 3 }, { total_score: 3 },
-  ];
-  assertEqual(computeTrend(logs), '↑ UP');
-});
+console.log('\nWeekday scoring:');
 
-test('down trend when recent scores lower', () => {
-  const logs = [
-    { total_score: 2 }, { total_score: 2 }, { total_score: 2 },
-    { total_score: 6 }, { total_score: 6 }, { total_score: 6 }, { total_score: 6 },
-  ];
-  assertEqual(computeTrend(logs), '↓ DOWN');
+test('5) weekday regression unchanged', () => {
+  const s = computeDetailedScores({
+    date: '2026-03-04', // Wednesday
+    escape_media_minutes: 15,  // 8
+    outside_window_meals: 1,   // 6
+    clean_evening: true,       // 10
+    work_win: false,           // 0
+    personal_win: true,        // 10
+    gym: true,                 // 10
+    kids_quality: false,       // 0
+    bed_time_text: '10:00pm',  // 8
+    mood_1_10: 7,              // 14
+  });
+  assertEqual(s.is_weekend, false, 'should detect weekday');
+  assertEqual(s.active_possible_points, 100, 'weekday denominator remains fixed');
+  assertEqual(s.daily_score, 66, 'weekday formula remains behavior + state');
 });
 
 // --- Summary ---

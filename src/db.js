@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { computeDetailedScores } from './scoring.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DATABASE_PATH || join(__dirname, '..', 'lifeos.db');
@@ -24,12 +25,108 @@ function ensureDailyLogColumns() {
     ['state_score', 'REAL'],
     ['daily_score', 'REAL'],
     ['checkin_completed_at', 'TEXT'],
+    ['coffee', 'INTEGER'],
+    ['adhd_meds', 'INTEGER'],
+    ['gut_bacteria_mgr', 'INTEGER'],
+    ['gut_mvmt', 'INTEGER'],
   ];
 
   for (const [name, type] of needed) {
     if (!cols.includes(name)) {
       getDb().exec(`ALTER TABLE daily_log ADD COLUMN ${name} ${type};`);
     }
+  }
+}
+
+function repairHistoricalBedtimeScoring() {
+  const rows = getDb().prepare(`
+    SELECT
+      date,
+      escape_media_minutes,
+      outside_window_meals,
+      clean_evening,
+      work_win,
+      personal_win,
+      gym,
+      kids_quality,
+      bed_time_text,
+      mood_1_10,
+      mood,
+      no_escape_media,
+      fixed_eating,
+      bed_on_time,
+      total_score,
+      behavior_score,
+      state_score,
+      daily_score,
+      bed_time_minutes
+    FROM daily_log
+    WHERE checkin_completed_at IS NOT NULL
+  `).all();
+
+  const updateStmt = getDb().prepare(`
+    UPDATE daily_log SET
+      no_escape_media = @no_escape_media,
+      fixed_eating = @fixed_eating,
+      bed_on_time = @bed_on_time,
+      total_score = @total_score,
+      mood = @mood,
+      behavior_score = @behavior_score,
+      state_score = @state_score,
+      daily_score = @daily_score,
+      bed_time_minutes = @bed_time_minutes,
+      updated_at = datetime('now')
+    WHERE date = @date
+  `);
+
+  let updated = 0;
+  for (const row of rows) {
+    const scored = computeDetailedScores({
+      date: row.date,
+      escape_media_minutes: row.escape_media_minutes,
+      outside_window_meals: row.outside_window_meals,
+      clean_evening: row.clean_evening,
+      work_win: row.work_win,
+      personal_win: row.personal_win,
+      gym: row.gym,
+      kids_quality: row.kids_quality,
+      bed_time_text: row.bed_time_text || '',
+      mood_1_10: row.mood_1_10 ?? (row.mood != null ? row.mood * 2 : null),
+    });
+
+    // Only repair rows where bedtime can now be parsed.
+    if (scored.bed_time_minutes == null) continue;
+
+    const changed =
+      row.no_escape_media !== scored.no_escape_media ||
+      row.fixed_eating !== scored.fixed_eating ||
+      row.bed_on_time !== scored.bed_on_time ||
+      row.total_score !== scored.total_score ||
+      row.mood !== scored.mood ||
+      row.behavior_score !== scored.behavior_score ||
+      row.state_score !== scored.state_score ||
+      row.daily_score !== scored.daily_score ||
+      row.bed_time_minutes !== scored.bed_time_minutes;
+
+    if (!changed) continue;
+
+    updateStmt.run({
+      date: row.date,
+      no_escape_media: scored.no_escape_media,
+      fixed_eating: scored.fixed_eating,
+      bed_on_time: scored.bed_on_time,
+      total_score: scored.total_score,
+      mood: scored.mood,
+      behavior_score: scored.behavior_score,
+      state_score: scored.state_score,
+      daily_score: scored.daily_score,
+      bed_time_minutes: scored.bed_time_minutes,
+    });
+    updated++;
+  }
+
+  if (updated > 0) {
+    console.log(`Repaired historical bedtime scoring rows: ${updated}`);
   }
 }
 
@@ -97,6 +194,7 @@ export function initDb() {
   `);
 
   ensureDailyLogColumns();
+  repairHistoricalBedtimeScoring();
   return db;
 }
 
@@ -118,6 +216,23 @@ export function setSetting(key, value) {
   ).run(key, value, value);
 }
 
+export function deleteSetting(key) {
+  getDb().prepare('DELETE FROM settings WHERE key = ?').run(key);
+}
+
+export function claimDailySetting(prefix, date) {
+  const key = `${prefix}:${date}`;
+  const out = getDb().prepare(
+    "INSERT INTO settings (key, value) VALUES (?, 'claim') ON CONFLICT(key) DO NOTHING"
+  ).run(key);
+  return out.changes === 1;
+}
+
+export function releaseDailyClaim(prefix, date) {
+  const key = `${prefix}:${date}`;
+  getDb().prepare("DELETE FROM settings WHERE key = ? AND value = 'claim'").run(key);
+}
+
 export function getChatId() { return getSetting('chat_id'); }
 export function setChatId(id) { setSetting('chat_id', String(id)); }
 
@@ -129,12 +244,14 @@ export function upsertDailyLog(data) {
       work_win, personal_win, gym, kids_quality, bed_on_time, total_score, mood, stress_note,
       escape_media_minutes, outside_window_meals, clean_evening_alcohol, clean_evening_weed, clean_evening_other_text,
       gym_type, kids_quality_note, bed_time_text, bed_time_minutes, mood_1_10,
-      behavior_score, state_score, daily_score, checkin_completed_at)
+      behavior_score, state_score, daily_score, checkin_completed_at,
+      coffee, adhd_meds, gut_bacteria_mgr, gut_mvmt)
     VALUES (@date, @no_escape_media, @fixed_eating, @clean_evening,
       @work_win, @personal_win, @gym, @kids_quality, @bed_on_time, @total_score, @mood, @stress_note,
       @escape_media_minutes, @outside_window_meals, @clean_evening_alcohol, @clean_evening_weed, @clean_evening_other_text,
       @gym_type, @kids_quality_note, @bed_time_text, @bed_time_minutes, @mood_1_10,
-      @behavior_score, @state_score, @daily_score, @checkin_completed_at)
+      @behavior_score, @state_score, @daily_score, @checkin_completed_at,
+      @coffee, @adhd_meds, @gut_bacteria_mgr, @gut_mvmt)
     ON CONFLICT(date) DO UPDATE SET
       no_escape_media = @no_escape_media, fixed_eating = @fixed_eating,
       clean_evening = @clean_evening, work_win = @work_win, personal_win = @personal_win,
@@ -155,6 +272,10 @@ export function upsertDailyLog(data) {
       state_score = @state_score,
       daily_score = @daily_score,
       checkin_completed_at = @checkin_completed_at,
+      coffee = @coffee,
+      adhd_meds = @adhd_meds,
+      gut_bacteria_mgr = @gut_bacteria_mgr,
+      gut_mvmt = @gut_mvmt,
       updated_at = datetime('now')
   `).run({
     stress_note: '',
@@ -172,6 +293,10 @@ export function upsertDailyLog(data) {
     state_score: null,
     daily_score: null,
     checkin_completed_at: null,
+    coffee: 0,
+    adhd_meds: 0,
+    gut_bacteria_mgr: 0,
+    gut_mvmt: 0,
     ...data,
   });
 }

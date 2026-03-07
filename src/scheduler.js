@@ -26,29 +26,31 @@ function getNowMinutesInTz() {
   return (hour * 60) + minute;
 }
 
-function wasSentToday(key, date) {
-  return db.getSetting(`${key}:${date}`) === '1';
-}
-
-function markSentToday(key, date) {
-  db.setSetting(`${key}:${date}`, '1');
-}
-
 async function sendTargetPromptIfNeeded(chatId, date) {
   if (!chatId) return false;
-  if (wasSentToday('targets_prompt_sent', date)) return false;
-  startTargetSettingForUser(chatId);
-  await sendMessage(chatId, msg.targetPrompt());
-  markSentToday('targets_prompt_sent', date);
-  return true;
+  if (!db.claimDailySetting('targets_prompt_sent', date)) return false;
+  try {
+    startTargetSettingForUser(chatId);
+    await sendMessage(chatId, msg.targetPrompt());
+    db.setSetting(`targets_prompt_sent:${date}`, '1');
+    return true;
+  } catch (err) {
+    db.releaseDailyClaim('targets_prompt_sent', date);
+    throw err;
+  }
 }
 
 async function sendCheckinPromptIfNeeded(chatId, date) {
   if (!chatId) return false;
-  if (wasSentToday('checkin_prompt_sent', date)) return false;
-  await startCheckinForUser(chatId);
-  markSentToday('checkin_prompt_sent', date);
-  return true;
+  if (!db.claimDailySetting('checkin_prompt_sent', date)) return false;
+  try {
+    await startCheckinForUser(chatId);
+    db.setSetting(`checkin_prompt_sent:${date}`, '1');
+    return true;
+  } catch (err) {
+    db.releaseDailyClaim('checkin_prompt_sent', date);
+    throw err;
+  }
 }
 
 export function startScheduler() {
