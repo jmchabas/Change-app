@@ -745,8 +745,8 @@
       const sleepScores = days.map((w) => {
         const v = Number(w.sleep_score);
         if (!Number.isFinite(v)) return null;
-        // Treat empty/invalid score days as missing to avoid false "0" dips.
-        if (v <= 0 && (w.sleep_hours == null || Number(w.sleep_hours) === 0)) return null;
+        // Treat empty/invalid score days as missing to avoid false dips.
+        if (v <= 0) return null;
         return v;
       });
 

@@ -189,12 +189,27 @@ function parseSleepHours(sleepPayload) {
 }
 
 function parseSleepScore(sleepScorePayload, sleepPayload) {
-  const v = sleepScorePayload?.sleepScore?.value
-    ?? sleepScorePayload?.sleep?.[0]?.sleepScore
-    ?? sleepScorePayload?.sleep_score
-    ?? null;
+  const mainSleep = sleepPayload?.sleep?.find((s) => s.mainSleep) || sleepPayload?.sleep?.[0] || null;
+  const candidates = [
+    sleepScorePayload?.sleepScore?.value,
+    sleepScorePayload?.sleepScore?.score,
+    sleepScorePayload?.sleep?.[0]?.sleepScore,
+    sleepScorePayload?.sleep?.[0]?.sleepScore?.value,
+    sleepScorePayload?.sleep?.[0]?.sleepScore?.score,
+    sleepScorePayload?.sleep?.[0]?.score,
+    sleepScorePayload?.summary?.sleepScore,
+    sleepScorePayload?.sleep_score,
+    mainSleep?.sleepScore,
+    mainSleep?.sleepScore?.value,
+    mainSleep?.sleepScore?.score,
+    mainSleep?.score,
+  ];
 
-  if (v != null && Number.isFinite(Number(v))) return Number(v);
+  for (const c of candidates) {
+    const n = Number(c);
+    // Fitbit may return placeholder 0 while score is still pending.
+    if (Number.isFinite(n) && n > 0 && n <= 100) return Math.round(n);
+  }
   // Do NOT fallback to efficiency; Fitbit "sleep efficiency" is not the same metric
   // as app "sleep score" and can be materially different.
   return null;
