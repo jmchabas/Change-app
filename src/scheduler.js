@@ -31,7 +31,8 @@ async function sendTargetPromptIfNeeded(chatId, date) {
   if (!db.claimDailySetting('targets_prompt_sent', date)) return false;
   try {
     startTargetSettingForUser(chatId);
-    await sendMessage(chatId, msg.targetPrompt());
+    const ok = await sendMessage(chatId, msg.targetPrompt());
+    if (!ok) throw new Error('Telegram send failed (target prompt)');
     db.setSetting(`targets_prompt_sent:${date}`, '1');
     return true;
   } catch (err) {
@@ -44,7 +45,8 @@ async function sendCheckinPromptIfNeeded(chatId, date) {
   if (!chatId) return false;
   if (!db.claimDailySetting('checkin_prompt_sent', date)) return false;
   try {
-    await startCheckinForUser(chatId);
+    const ok = await startCheckinForUser(chatId);
+    if (!ok) throw new Error('Telegram send failed (check-in prompt)');
     db.setSetting(`checkin_prompt_sent:${date}`, '1');
     return true;
   } catch (err) {
@@ -64,6 +66,26 @@ export function startScheduler() {
       console.error('Fitbit bootstrap sync error:', err.message);
     }
   }, 5000);
+
+  // Startup prompt catch-up to recover from deploy/restart around send windows.
+  setTimeout(async () => {
+    const chatId = db.getChatId();
+    if (!chatId) return;
+    const today = getTodayHST();
+    const mins = getNowMinutesInTz();
+    try {
+      if (mins >= (16 * 60 + 30) && mins <= (18 * 60)) {
+        const sent = await sendTargetPromptIfNeeded(chatId, today);
+        if (sent) console.log('Startup catch-up: target prompt sent');
+      }
+      if (mins >= (20 * 60) && mins <= (23 * 60 + 59)) {
+        const sent = await sendCheckinPromptIfNeeded(chatId, today);
+        if (sent) console.log('Startup catch-up: check-in prompt sent');
+      }
+    } catch (err) {
+      console.error('Startup prompt catch-up error:', err.message);
+    }
+  }, 12_000);
 
   // 6:30 AM (daily) — pull latest Fitbit metrics before morning message
   cron.schedule('30 6 * * *', async () => {
@@ -111,8 +133,8 @@ export function startScheduler() {
         const sent = await sendTargetPromptIfNeeded(chatId, today);
         if (sent) console.log('Catch-up: target prompt sent');
       }
-      // Check-in prompt catch-up window: 8:00 PM -> 10:00 PM
-      if (mins >= (20 * 60) && mins <= (22 * 60)) {
+      // Check-in prompt catch-up window: 8:00 PM -> 11:59 PM
+      if (mins >= (20 * 60) && mins <= (23 * 60 + 59)) {
         const sent = await sendCheckinPromptIfNeeded(chatId, today);
         if (sent) console.log('Catch-up: check-in prompt sent');
       }

@@ -135,13 +135,15 @@ export function getBot() {
 }
 
 export async function sendMessage(chatId, text, options = {}) {
-  if (!bot) return;
+  if (!bot) return false;
   try {
     const payload = { disable_web_page_preview: true };
     if (options.html) payload.parse_mode = 'HTML';
     await bot.api.sendMessage(chatId, text, payload);
+    return true;
   } catch (err) {
     console.error('Failed to send message:', err.message);
+    return false;
   }
 }
 

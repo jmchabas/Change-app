@@ -323,17 +323,39 @@ export function deleteSetting(key) {
   getDb().prepare('DELETE FROM settings WHERE key = ?').run(key);
 }
 
+const CLAIM_TTL_MS = 15 * 60 * 1000;
+
 export function claimDailySetting(prefix, date) {
   const key = `${prefix}:${date}`;
-  const out = getDb().prepare(
-    "INSERT INTO settings (key, value) VALUES (?, 'claim') ON CONFLICT(key) DO NOTHING"
-  ).run(key);
-  return out.changes === 1;
+  const now = Date.now();
+  const claimValue = `claim:${now}`;
+  const existing = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key);
+
+  if (!existing) {
+    const out = getDb().prepare(
+      'INSERT INTO settings (key, value) VALUES (?, ?)'
+    ).run(key, claimValue);
+    return out.changes === 1;
+  }
+
+  const current = String(existing.value || '');
+  if (current === '1') return false;
+
+  if (current.startsWith('claim:')) {
+    const ts = Number(current.slice('claim:'.length));
+    const stale = !Number.isFinite(ts) || (now - ts) > CLAIM_TTL_MS;
+    if (!stale) return false;
+    getDb().prepare('UPDATE settings SET value = ? WHERE key = ?').run(claimValue, key);
+    return true;
+  }
+
+  // Unknown value type: do not claim.
+  return false;
 }
 
 export function releaseDailyClaim(prefix, date) {
   const key = `${prefix}:${date}`;
-  getDb().prepare("DELETE FROM settings WHERE key = ? AND value = 'claim'").run(key);
+  getDb().prepare("DELETE FROM settings WHERE key = ? AND value LIKE 'claim:%'").run(key);
 }
 
 export function getChatId() { return getSetting('chat_id'); }
