@@ -216,6 +216,12 @@
       { key: 'all', label: 'All' },
     ];
 
+    function esc(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
     const scoreColor = s => s >= 80 ? 'green' : s >= 60 ? 'amber' : 'red';
     const moodLabel = m => {
       if (!m) return '—';
@@ -303,8 +309,8 @@
 
       const targetsHtml = targets
         ? `<div class="targets">
-            <div class="t">→ Work: <span>${targets.work_target || '—'}</span></div>
-            <div class="t">→ Personal: <span>${targets.personal_target || '—'}</span></div>
+            <div class="t">→ Work: <span>${esc(targets.work_target) || '—'}</span></div>
+            <div class="t">→ Personal: <span>${esc(targets.personal_target) || '—'}</span></div>
            </div>`
         : `<div class="targets"><div class="t muted">No targets set — use /targets</div></div>`;
 
@@ -321,7 +327,7 @@
         </div>
         ${targetsHtml}
         ${clusterHtml}
-        ${log && log.stress_note ? `<div style="margin-top:.6rem;font-size:.75rem;color:var(--muted)">Note: ${log.stress_note}</div>` : ''}
+        ${log && log.stress_note ? `<div style="margin-top:.6rem;font-size:.75rem;color:var(--muted)">Note: ${esc(log.stress_note)}</div>` : ''}
       </div>`;
     }
 
@@ -384,8 +390,8 @@
         </div>
         <div class="targets">
           <div class="t">→ Last sync: <span>${fitbit?.lastSyncAt ? new Date(fitbit.lastSyncAt).toLocaleString() : 'never'}</span></div>
-          ${fitbit?.lastSyncSummary ? `<div class="t">→ Last result: <span>${fitbit.lastSyncSummary}</span></div>` : ''}
-          ${fitbit?.lastSyncError ? `<div class="t" style="color:var(--red)">→ Last error: <span>${fitbit.lastSyncError}</span></div>` : ''}
+          ${fitbit?.lastSyncSummary ? `<div class="t">→ Last result: <span>${esc(fitbit.lastSyncSummary)}</span></div>` : ''}
+          ${fitbit?.lastSyncError ? `<div class="t" style="color:var(--red)">→ Last error: <span>${esc(fitbit.lastSyncError)}</span></div>` : ''}
         </div>
         <div style="margin-top:.7rem;font-size:.8rem">${cta}</div>
         <div style="margin-top:.7rem">
@@ -453,7 +459,7 @@
       return `<div class="card">
         <div class="section-title">Latest Coaching</div>
         <div class="coaching-meta">Week of ${r.week_start} · Avg ${r.avg_score}/100${r.avg_mood ? ` · Mood ${r.avg_mood}/10` : ''}</div>
-        <div class="coaching-text">${r.coaching_text || '—'}</div>
+        <div class="coaching-text">${esc(r.coaching_text) || '—'}</div>
       </div>`;
     }
 
@@ -464,9 +470,9 @@
       </div>`;
       const items = breaks.slice(0, 12).map(b => `
         <div class="break-item">
-          <span class="break-date">${b.date.slice(5)}</span>
-          <span class="break-habit">${b.habit.replace('_', ' ')}</span>
-          <span class="break-reason">${b.reason}</span>
+          <span class="break-date">${esc(b.date?.slice(5))}</span>
+          <span class="break-habit">${esc(b.habit?.replace('_', ' '))}</span>
+          <span class="break-reason">${esc(b.reason)}</span>
         </div>`).join('');
       return `<div class="card">
         <div class="section-title">Stress Log</div>
@@ -478,7 +484,7 @@
       if (!payload || !payload.available) {
         return `<div class="card">
           <div class="section-title">Latest Check-in Link</div>
-          <p class="empty">${payload?.reason || 'Link unavailable.'}</p>
+          <p class="empty">${esc(payload?.reason) || 'Link unavailable.'}</p>
         </div>`;
       }
 
@@ -1002,8 +1008,13 @@
 
     async function load() {
       try {
-        const [todayRes, weekRes, histRes, reviewsRes, breaksRes, integrationsRes, latestLinkRes, wearablesHistRes] = await Promise.all([
-          fetch('/api/today').then(r => r.json()),
+        const authCheck = await fetch('/api/today');
+        if (authCheck.status === 401) {
+          window.location.href = '/auth/login';
+          return;
+        }
+        const todayRes = await authCheck.json();
+        const [weekRes, histRes, reviewsRes, breaksRes, integrationsRes, latestLinkRes, wearablesHistRes] = await Promise.all([
           fetch('/api/week').then(r => r.json()),
           fetch('/api/history').then(r => r.json()),
           fetch('/api/reviews').then(r => r.json()),

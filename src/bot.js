@@ -23,6 +23,14 @@ function setPendingTargets(chatId) {
 export function createBot(token) {
   bot = new Bot(token);
 
+  const ALLOWED_USER_ID = process.env.TELEGRAM_USER_ID;
+  if (ALLOWED_USER_ID) {
+    bot.use(async (ctx, next) => {
+      if (String(ctx.from?.id) !== ALLOWED_USER_ID) return;
+      return next();
+    });
+  }
+
   bot.command('start', async (ctx) => {
     db.setChatId(ctx.chat.id);
     await ctx.reply(msg.welcomeMessage());
@@ -82,8 +90,6 @@ export function createBot(token) {
 
     if (text.startsWith('/')) return;
 
-    db.setChatId(chatId);
-
     // --- Evening reflection (Claude-powered, after form submission) ---
     if (hasActiveConversation(chatId)) {
       try {
@@ -123,7 +129,7 @@ export function createBot(token) {
   });
 
   bot.catch((err) => {
-    console.error('Bot error:', err.message);
+    console.error('Bot error:', err.error ?? err);
   });
 
   return bot;

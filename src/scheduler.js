@@ -87,8 +87,8 @@ export function startScheduler() {
     }
   }, 12_000);
 
-  // 6:30 AM (daily) — pull latest Fitbit metrics before morning message
-  cron.schedule('30 6 * * *', async () => {
+  // 7:10 AM (daily) — pull latest Fitbit metrics before morning message
+  cron.schedule('10 7 * * *', async () => {
     try {
       const result = await syncRecentFitbitData(1);
       if (result?.ok) console.log('Fitbit sync complete');
@@ -205,9 +205,16 @@ export function startScheduler() {
   }, { timezone: TZ });
 
   console.log(`Scheduler started (${TZ})`);
-  console.log('  6:30 AM       → Fitbit sync');
+  console.log('  7:10 AM       → Fitbit sync');
   console.log('  7:20 AM       → Morning brief');
   console.log('  4:30 PM       → Target setting + gym reminder');
   console.log('  8:00 PM       → Evening check-in (Claude)');
   console.log('  Sunday 5:00 PM → Weekly coaching review (Claude)');
+}
+
+export function stopScheduler() {
+  try {
+    const all = cron.getTasks();
+    if (all && typeof all.forEach === 'function') all.forEach(t => t.stop());
+  } catch { /* node-cron may not expose getTasks */ }
 }

@@ -282,7 +282,10 @@
       const res = await fetch(`/api/checkin/form?token=${encodeURIComponent(token)}`);
       const data = await res.json();
       if (!data.ok) {
-        result.innerHTML = `<div class="error">${data.error}</div>`;
+        const errDiv = document.createElement('div');
+        errDiv.className = 'error';
+        errDiv.textContent = data.error || 'Unknown error';
+        result.replaceChildren(errDiv);
         return;
       }
 
@@ -372,9 +375,15 @@
         });
         const data = await res.json();
         if (!data.ok) throw new Error(data.error || 'Submit failed');
-        result.innerHTML = `<div class="success">Saved. Today's score: ${data.daily_score}/100. Check Telegram for reflection.</div>`;
+        const okDiv = document.createElement('div');
+        okDiv.className = 'success';
+        okDiv.textContent = `Saved. Today's score: ${data.daily_score}/100. Check Telegram for reflection.`;
+        result.replaceChildren(okDiv);
       } catch (err) {
-        result.innerHTML = `<div class="error">${err.message}</div>`;
+        const errDiv = document.createElement('div');
+        errDiv.className = 'error';
+        errDiv.textContent = err.message;
+        result.replaceChildren(errDiv);
       } finally {
         document.getElementById('submit_btn').disabled = false;
       }

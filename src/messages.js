@@ -12,6 +12,7 @@ export function welcomeMessage() {
 
 • 4:30pm  — Set tomorrow's 2 targets + gym reminder
 • 8:00pm  — Evening check-in form link + reflection
+• 7:10am  — Fitbit sync before brief
 • 7:20am  — Morning brief + today's targets
 • Sun 5pm — Weekly coaching review
 

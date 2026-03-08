@@ -18,7 +18,7 @@ Style:
 Rules:
 - Assume form data is true unless user says otherwise.
 - Keep responses 2-6 sentences.
-- If there are misses, prioritize: escape media, outside-window meals, clean evening.
+- If there are misses, prioritize: escape media, outside-window meals, clean eve.
 - End most replies with one concrete next action for tomorrow.
 `;
 
@@ -31,7 +31,7 @@ function formatContext(context) {
     `Daily score: ${context.daily_score ?? '?'} / 100 (behavior ${context.behavior_score ?? '?'}/80, state ${context.state_score ?? '?'}/20)`,
     `Escape media: ${context.escape_media_minutes ?? '?'} min`,
     `Meals outside windows: ${context.outside_window_meals ?? '?'}`,
-    `Clean evening: ${context.clean_evening ? 'Yes' : 'No'}${context.clean_evening_substances ? ` (${context.clean_evening_substances})` : ''}`,
+    `Clean Eve: ${context.clean_evening ? 'Yes' : 'No'}${context.clean_evening_substances ? ` (${context.clean_evening_substances})` : ''}`,
     `Work win: ${context.work_win ? 'Yes' : 'No'}`,
     `Personal win: ${context.personal_win ? 'Yes' : 'No'}`,
     `Gym: ${context.gym ? `Yes (${context.gym_type || 'unspecified'})` : 'No'}`,
@@ -91,7 +91,7 @@ export async function generateWeeklyReview({ logs, breakLogs, avgMood }) {
     const habits = [
       `focus:${yn(l.no_escape_media)}`,
       `eating:${yn(l.fixed_eating)}`,
-      `clean:${yn(l.clean_evening)}`,
+      `cleanEve:${yn(l.clean_evening)}`,
       `work:${yn(l.work_win)}`,
       `perso:${yn(l.personal_win)}`,
       `gym:${yn(l.gym)}`,
