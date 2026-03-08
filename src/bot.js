@@ -13,7 +13,7 @@ const pendingTargets = new Map();
 const TARGET_FLOW_TTL_MS = 90 * 60 * 1000;
 
 function setPendingTargets(chatId) {
-  pendingTargets.set(chatId, {
+  pendingTargets.set(Number(chatId), {
     type: 'targets_work',
     workTarget: '',
     expiresAt: Date.now() + TARGET_FLOW_TTL_MS,
@@ -154,8 +154,7 @@ export async function sendMessage(chatId, text, options = {}) {
 }
 
 export function startCheckinForUser(chatId) {
-  // Avoid target-setting prompts colliding with evening reflection messages.
-  pendingTargets.delete(chatId);
+  pendingTargets.delete(Number(chatId));
   const baseUrl = process.env.APP_BASE_URL || 'http://localhost:3000';
   const token = createCheckinToken({ chatId, date: getTodayHST(), ttlHours: 24 });
   const link = `${baseUrl.replace(/\/$/, '')}/checkin?token=${encodeURIComponent(token)}`;
