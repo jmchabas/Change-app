@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import * as db from './db.js';
-import { getTodayHST, computeTrend, computeDetailedScores } from './scoring.js';
+import { getTodayHST, getYesterdayHST, computeTrend, computeDetailedScores } from './scoring.js';
 import {
   getFitbitAuthUrl,
   handleFitbitCallback,
@@ -162,16 +162,23 @@ router.get('/api/checkin/latest-link', (req, res) => {
     return;
   }
 
-  const date = getTodayHST();
-  const token = createCheckinToken({ chatId, date, ttlHours: 24 });
   const baseUrl = getBaseUrl(req).replace(/\/$/, '');
-  const link = `${baseUrl}/checkin?token=${encodeURIComponent(token)}`;
+
+  const today = getTodayHST();
+  const todayToken = createCheckinToken({ chatId, date: today, ttlHours: 24 });
+  const todayLink = `${baseUrl}/checkin?token=${encodeURIComponent(todayToken)}`;
+
+  const yesterday = getYesterdayHST();
+  const yesterdayToken = createCheckinToken({ chatId, date: yesterday, ttlHours: 24 });
+  const yesterdayLink = `${baseUrl}/checkin?token=${encodeURIComponent(yesterdayToken)}`;
 
   res.json({
     ok: true,
     available: true,
-    date,
-    link,
+    date: today,
+    link: todayLink,
+    yesterday: yesterday,
+    yesterdayLink,
   });
 });
 
