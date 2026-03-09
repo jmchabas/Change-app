@@ -8,16 +8,40 @@ import { syncRecentFitbitData } from './fitbit.js';
 
 let bot;
 
-// In-memory target-setting state: chatId → { type: 'targets_work'|'targets_personal', workTarget?: string }
-const pendingTargets = new Map();
 const TARGET_FLOW_TTL_MS = 90 * 60 * 1000;
+const PENDING_KEY = 'pending_targets';
+
+function getPendingTargets(chatId) {
+  const raw = db.getSetting(`${PENDING_KEY}:${Number(chatId)}`);
+  if (!raw) return null;
+  try {
+    const state = JSON.parse(raw);
+    if (state.expiresAt && Date.now() > state.expiresAt) {
+      db.deleteSetting(`${PENDING_KEY}:${Number(chatId)}`);
+      return null;
+    }
+    return state;
+  } catch { return null; }
+}
 
 function setPendingTargets(chatId) {
-  pendingTargets.set(Number(chatId), {
+  db.setSetting(`${PENDING_KEY}:${Number(chatId)}`, JSON.stringify({
     type: 'targets_work',
     workTarget: '',
     expiresAt: Date.now() + TARGET_FLOW_TTL_MS,
-  });
+  }));
+}
+
+function updatePendingTargets(chatId, update) {
+  const state = getPendingTargets(chatId);
+  if (!state) return;
+  Object.assign(state, update);
+  state.expiresAt = Date.now() + TARGET_FLOW_TTL_MS;
+  db.setSetting(`${PENDING_KEY}:${Number(chatId)}`, JSON.stringify(state));
+}
+
+function clearPendingTargets(chatId) {
+  db.deleteSetting(`${PENDING_KEY}:${Number(chatId)}`);
 }
 
 export function createBot(token) {
@@ -66,7 +90,7 @@ export function createBot(token) {
     const today = getTodayHST();
     const targetsSent = db.getSetting(`targets_prompt_sent:${today}`) === '1';
     const checkinSent = db.getSetting(`checkin_prompt_sent:${today}`) === '1';
-    const pending = pendingTargets.get(ctx.chat.id);
+    const pending = getPendingTargets(ctx.chat.id);
     const pendingState = pending
       ? `pending target step: ${pending.type === 'targets_work' ? 'work' : 'personal'}`
       : 'pending target step: none';
@@ -104,21 +128,17 @@ export function createBot(token) {
       return;
     }
 
-    // --- Target-setting flow (simple 2-step, no Claude needed) ---
-    const pending = pendingTargets.get(chatId);
+    // --- Target-setting flow (simple 2-step, persisted to DB) ---
+    const pending = getPendingTargets(chatId);
     if (pending) {
-      if (!pending.expiresAt || Date.now() > pending.expiresAt) {
-        pendingTargets.delete(chatId);
-      } else if (pending.type === 'targets_work') {
-        pending.workTarget = text;
-        pending.type = 'targets_personal';
-        pending.expiresAt = Date.now() + TARGET_FLOW_TTL_MS;
+      if (pending.type === 'targets_work') {
+        updatePendingTargets(chatId, { type: 'targets_personal', workTarget: text });
         await ctx.reply(msg.targetPersonalPrompt(text));
         return;
       } else if (pending.type === 'targets_personal') {
         const { workTarget } = pending;
         db.upsertDeliverables(getTomorrowHST(), workTarget, text);
-        pendingTargets.delete(chatId);
+        clearPendingTargets(chatId);
         await ctx.reply(msg.targetConfirmation(workTarget, text));
         return;
       }
@@ -154,7 +174,7 @@ export async function sendMessage(chatId, text, options = {}) {
 }
 
 export function startCheckinForUser(chatId) {
-  pendingTargets.delete(Number(chatId));
+  clearPendingTargets(chatId);
   const baseUrl = process.env.APP_BASE_URL || 'http://localhost:3000';
   const token = createCheckinToken({ chatId, date: getTodayHST(), ttlHours: 24 });
   const link = `${baseUrl.replace(/\/$/, '')}/checkin?token=${encodeURIComponent(token)}`;
