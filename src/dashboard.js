@@ -6,6 +6,7 @@ import {
   handleFitbitCallback,
   getFitbitStatus,
   syncRecentFitbitData,
+  debugFitbitSleepScore,
 } from './fitbit.js';
 import { verifyCheckinToken } from './checkin-link.js';
 import { createCheckinToken } from './checkin-link.js';
@@ -146,6 +147,16 @@ router.post('/api/fitbit/sync-now', async (req, res) => {
   try {
     const result = await syncRecentFitbitData(3);
     res.json({ ok: true, result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.get('/api/fitbit/debug-score', async (req, res) => {
+  try {
+    const date = req.query.date || getTodayHST();
+    const debug = await debugFitbitSleepScore(date);
+    res.json({ ok: true, date, debug });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

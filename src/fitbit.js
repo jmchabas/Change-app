@@ -391,6 +391,46 @@ export async function syncFitbitDate(date) {
   };
 }
 
+export async function debugFitbitSleepScore(date) {
+  const results = {};
+
+  try {
+    results.sleepData = await fitbitGet(`/1.2/user/-/sleep/date/${date}.json`);
+  } catch (err) {
+    results.sleepError = err.message;
+  }
+
+  const scoreEndpoints = [
+    `/1.2/user/-/sleep/score/date/${date}.json`,
+    `/1/user/-/sleep/score.json?date=${date}`,
+  ];
+  results.scoreEndpoints = {};
+  for (const ep of scoreEndpoints) {
+    try {
+      results.scoreEndpoints[ep] = await fitbitGet(ep);
+    } catch (err) {
+      results.scoreEndpoints[ep] = { error: err.message, status: err.status };
+    }
+  }
+
+  if (results.sleepData?.sleep?.length) {
+    const main = results.sleepData.sleep.find(s => s.mainSleep) || results.sleepData.sleep[0];
+    results.mainSleepKeys = Object.keys(main || {});
+    results.mainSleepScoreFields = {};
+    for (const k of ['score', 'sleepScore', 'sleepScoreDetails', 'efficiency', 'overallScore']) {
+      if (main?.[k] !== undefined) results.mainSleepScoreFields[k] = main[k];
+    }
+  }
+
+  const parsed = parseSleepScore(
+    results.scoreEndpoints[scoreEndpoints[0]]?.error ? null : results.scoreEndpoints[scoreEndpoints[0]],
+    results.sleepData || null,
+  );
+  results.parsedScore = parsed;
+
+  return results;
+}
+
 export async function syncRecentFitbitData(days = 3) {
   if (!isFitbitConfigured()) return { ok: false, reason: 'not-configured' };
   if (!getStoredTokens()?.refresh_token) return { ok: false, reason: 'not-connected' };
