@@ -33,7 +33,7 @@ function assertApprox(actual, expected, epsilon = 0.001, msg) {
 
 console.log('\nWeekend scoring:');
 
-test('0) friday counts as weekend-mode', () => {
+test('0) friday is a weekday', () => {
   const s = computeDetailedScores({
     date: '2026-03-06', // Friday
     escape_media_minutes: 0,
@@ -46,8 +46,8 @@ test('0) friday counts as weekend-mode', () => {
     bed_time_text: '',
     mood_1_10: 8,
   });
-  assertEqual(s.is_weekend, true, 'Friday should use weekend optional logic');
-  assertEqual(s.active_possible_points, 70, 'Friday should keep optionals out when empty');
+  assertEqual(s.is_weekend, false, 'Friday should be a weekday');
+  assertEqual(s.active_possible_points, 100, 'Friday denominator should be full 100');
 });
 
 test('1) weekend, no optional filled', () => {
@@ -68,21 +68,21 @@ test('1) weekend, no optional filled', () => {
   assertApprox(s.daily_score, 94.3, 0.05, 'weekend score');
 });
 
-test('2) weekend, one optional filled (denominator increases)', () => {
+test('2) weekend, "No" on optional excludes it (same as blank)', () => {
   const s = computeDetailedScores({
     date: '2026-03-08', // Sunday
     escape_media_minutes: 0,
     outside_window_meals: 0,
     clean_evening: true,
-    work_win: false, // validly filled optional
+    work_win: false, // "No" → excluded on weekend
     personal_win: null,
     gym: true,
     kids_quality: true,
     bed_time_text: '',
     mood_1_10: 8,
   });
-  assertEqual(s.active_possible_points, 80, 'one optional should add +10 max points');
-  assertApprox(s.daily_score, 82.5, 0.05, 'weekend score should scale with larger denominator');
+  assertEqual(s.active_possible_points, 70, '"No" on weekend optional should not increase denominator');
+  assertApprox(s.daily_score, 94.3, 0.05, 'same score as all-blank optionals');
 });
 
 test('3) weekend, invalid optional input (excluded)', () => {
@@ -102,21 +102,21 @@ test('3) weekend, invalid optional input (excluded)', () => {
   assertApprox(s.daily_score, 94.3, 0.05, 'invalid optional inputs should not change score');
 });
 
-test('4) weekend, all optional filled', () => {
+test('4) weekend, all optional "Yes" fills denominator', () => {
   const s = computeDetailedScores({
     date: '2026-03-08',
     escape_media_minutes: 0,
     outside_window_meals: 0,
     clean_evening: true,
     work_win: true,
-    personal_win: false,
+    personal_win: true,
     gym: true,
     kids_quality: true,
     bed_time_text: '9:25pm',
     mood_1_10: 8,
   });
-  assertEqual(s.active_possible_points, 100, 'all optionals should add +30 max points');
-  assertApprox(s.daily_score, 86, 0.05, 'weekend score with all optional active');
+  assertEqual(s.active_possible_points, 100, 'all Yes optionals should give full denominator');
+  assertApprox(s.daily_score, 96, 0.05, 'weekend score with all optional Yes');
 });
 
 console.log('\nWeekday scoring:');

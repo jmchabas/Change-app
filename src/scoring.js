@@ -134,8 +134,7 @@ function isWeekendDate(dateStr) {
   const d = new Date(`${dateStr}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return false;
   const day = d.getUTCDay();
-  // Friday evening check-ins are treated as weekend-mode for optional goals.
-  return day === 5 || day === 6 || day === 0;
+  return day === 6 || day === 0;
 }
 
 export function computeDetailedScores(input) {
@@ -155,8 +154,8 @@ export function computeDetailedScores(input) {
   const cleanScore = cleanEvening ? 10 : 0;
   const gymScore = gym ? 10 : 0;
   const kidsScore = kidsQuality ? 10 : 0;
-  const workActive = weekend ? workRaw != null : true;
-  const personalActive = weekend ? personalRaw != null : true;
+  const workActive = weekend ? workRaw === 1 : true;
+  const personalActive = weekend ? personalRaw === 1 : true;
   const bedActive = weekend ? bedTimeMinutes != null : true;
   const workWin = workRaw == null ? null : workRaw;
   const personalWin = personalRaw == null ? null : personalRaw;
