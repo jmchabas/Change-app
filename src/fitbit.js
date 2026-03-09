@@ -395,38 +395,54 @@ export async function debugFitbitSleepScore(date) {
   const results = {};
 
   try {
-    results.sleepData = await fitbitGet(`/1.2/user/-/sleep/date/${date}.json`);
+    results.sleepV12 = await fitbitGet(`/1.2/user/-/sleep/date/${date}.json`);
   } catch (err) {
-    results.sleepError = err.message;
+    results.sleepV12Error = err.message;
+  }
+
+  try {
+    results.sleepV1 = await fitbitGet(`/1/user/-/sleep/date/${date}.json`);
+  } catch (err) {
+    results.sleepV1Error = err.message;
   }
 
   const scoreEndpoints = [
     `/1.2/user/-/sleep/score/date/${date}.json`,
-    `/1/user/-/sleep/score.json?date=${date}`,
+    `/1/user/-/sleep/score/date/${date}.json`,
+    `/1/user/-/sleep/date/${date}/score.json`,
+    `/1.2/user/-/sleep/score.json?date=${date}`,
+    `/1/user/-/spo2/date/${date}.json`,
+    `/1/user/-/sleep/date/${date}/profile.json`,
   ];
   results.scoreEndpoints = {};
   for (const ep of scoreEndpoints) {
     try {
       results.scoreEndpoints[ep] = await fitbitGet(ep);
     } catch (err) {
-      results.scoreEndpoints[ep] = { error: err.message, status: err.status };
+      results.scoreEndpoints[ep] = { error: err.status || err.message };
     }
   }
 
-  if (results.sleepData?.sleep?.length) {
-    const main = results.sleepData.sleep.find(s => s.mainSleep) || results.sleepData.sleep[0];
+  const sleepData = results.sleepV12 || results.sleepV1;
+  if (sleepData?.sleep?.length) {
+    const main = sleepData.sleep.find(s => s.isMainSleep) || sleepData.sleep[0];
     results.mainSleepKeys = Object.keys(main || {});
     results.mainSleepScoreFields = {};
-    for (const k of ['score', 'sleepScore', 'sleepScoreDetails', 'efficiency', 'overallScore']) {
-      if (main?.[k] !== undefined) results.mainSleepScoreFields[k] = main[k];
+    for (const k of Object.keys(main || {})) {
+      const v = main[k];
+      if (typeof v !== 'object' || v === null) results.mainSleepScoreFields[k] = v;
     }
   }
 
-  const parsed = parseSleepScore(
-    results.scoreEndpoints[scoreEndpoints[0]]?.error ? null : results.scoreEndpoints[scoreEndpoints[0]],
-    results.sleepData || null,
-  );
-  results.parsedScore = parsed;
+  if (results.sleepV1?.sleep?.length) {
+    const mainV1 = results.sleepV1.sleep.find(s => s.isMainSleep) || results.sleepV1.sleep[0];
+    results.v1MainKeys = Object.keys(mainV1 || {});
+    results.v1MainScalars = {};
+    for (const k of Object.keys(mainV1 || {})) {
+      const v = mainV1[k];
+      if (typeof v !== 'object' || v === null) results.v1MainScalars[k] = v;
+    }
+  }
 
   return results;
 }
