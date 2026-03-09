@@ -152,6 +152,31 @@ router.post('/api/fitbit/sync-now', async (req, res) => {
   }
 });
 
+router.post('/api/admin/rescore', (req, res) => {
+  try {
+    const days = Math.min(Number(req.query.days) || 30, 365);
+    const logs = db.getRecentLogs(days);
+    const updated = [];
+    for (const log of logs) {
+      const rescored = computeDetailedScores(log);
+      if (rescored.daily_score !== log.daily_score ||
+          rescored.behavior_score !== log.behavior_score) {
+        db.upsertDailyLog({ ...log, ...rescored });
+        updated.push({
+          date: log.date,
+          old: log.daily_score,
+          new: rescored.daily_score,
+          oldBehavior: log.behavior_score,
+          newBehavior: rescored.behavior_score,
+        });
+      }
+    }
+    res.json({ ok: true, scanned: logs.length, updated });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/api/fitbit/debug-score', async (req, res) => {
   try {
     const date = req.query.date || getTodayHST();
