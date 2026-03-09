@@ -355,7 +355,7 @@
               ${wearable?.sleep_score ?? '—'}<span class="denom">/100</span>
             </div>
             <div class="small" style="margin-top:.25rem;">
-              ${wearable?.sleep_score != null ? 'Official Fitbit sleep score' : 'Waiting for Fitbit score'}
+              ${wearable?.sleep_score == null ? 'Waiting for Fitbit score' : ''}
             </div>
           </div>
         </div>
