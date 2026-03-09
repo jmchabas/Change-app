@@ -158,21 +158,15 @@ router.post('/api/admin/rescore', (req, res) => {
     const logs = db.getRecentLogs(days);
     const updated = [];
     for (const log of logs) {
-      const rescored = computeDetailedScores(log);
-      if (rescored.daily_score !== log.daily_score ||
-          rescored.behavior_score !== log.behavior_score) {
-        db.upsertDailyLog({ ...log, ...rescored });
-        updated.push({
-          date: log.date,
-          old: log.daily_score,
-          new: rescored.daily_score,
-          oldBehavior: log.behavior_score,
-          newBehavior: rescored.behavior_score,
-        });
+      const r = computeDetailedScores(log);
+      if (r.daily_score !== log.daily_score || r.behavior_score !== log.behavior_score) {
+        db.updateScores(log.date, r);
+        updated.push({ date: log.date, old: log.daily_score, new: r.daily_score });
       }
     }
     res.json({ ok: true, scanned: logs.length, updated });
   } catch (err) {
+    console.error('Rescore error:', err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });

@@ -437,6 +437,16 @@ export function getDailyLog(date) {
   return getDb().prepare('SELECT * FROM daily_log WHERE date = ?').get(date);
 }
 
+export function updateScores(date, { behavior_score, state_score, daily_score, no_escape_media, fixed_eating, work_win, personal_win, bed_on_time, total_score }) {
+  getDb().prepare(`
+    UPDATE daily_log SET
+      behavior_score = ?, state_score = ?, daily_score = ?,
+      no_escape_media = ?, fixed_eating = ?, work_win = ?, personal_win = ?,
+      bed_on_time = ?, total_score = ?, updated_at = datetime('now')
+    WHERE date = ?
+  `).run(behavior_score, state_score, daily_score, no_escape_media, fixed_eating, work_win, personal_win, bed_on_time, total_score, date);
+}
+
 export function getRecentLogs(days = 7) {
   return getDb().prepare('SELECT * FROM daily_log ORDER BY date DESC LIMIT ?').all(days);
 }
