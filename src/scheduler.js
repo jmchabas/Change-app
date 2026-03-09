@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import * as db from './db.js';
 import { sendMessage, startCheckinForUser, startTargetSettingForUser } from './bot.js';
 import { getTodayHST, getYesterdayHST, getWeekStartHST, computeTrend } from './scoring.js';
-import { generateWeeklyReview } from './claude.js';
+import { generateWeeklyReview, startWeeklyCoaching } from './claude.js';
 import { syncRecentFitbitData } from './fitbit.js';
 import * as msg from './messages.js';
 
@@ -196,9 +196,11 @@ export function startScheduler() {
         avg_mood: avgMood ? parseFloat(avgMood) : null,
         coaching_text: coachingText,
       });
-      await sendMessage(chatId,
-        `${msg.weeklyReviewIntro()}\nAvg: ${avgScore}/100  ·  Mood: ${avgMood ?? '?'}/10\n\n${coachingText}`
-      );
+      const fullMessage = `${msg.weeklyReviewIntro()}\nAvg: ${avgScore}/100  ·  Mood: ${avgMood ?? '?'}/10\n\n${coachingText}`;
+      await sendMessage(chatId, fullMessage);
+
+      const weekContext = `Weekly avg score: ${avgScore}/100, avg mood: ${avgMood ?? '?'}/10, ${logs.length} days tracked.`;
+      startWeeklyCoaching(chatId, fullMessage, weekContext);
     } catch (err) {
       console.error('Weekly review error:', err.message);
     }

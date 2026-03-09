@@ -64,12 +64,12 @@ export async function continueCheckin(chatId, userMessage) {
   conv.messages.push({ role: 'user', content: userMessage });
   conv.turn++;
 
-  const systemWithTurn = `${REFLECTION_SYSTEM}
+  const baseSystem = conv.system || REFLECTION_SYSTEM;
 
-Structured check-in context:
-${conv.context}
+  const systemWithTurn = `${baseSystem}
 
-Current reflection turn: ${conv.turn}`;
+${conv.context ? `Context:\n${conv.context}\n` : ''}
+Current conversation turn: ${conv.turn}`;
 
   const response = await client.messages.create({
     model: MODEL,
@@ -82,6 +82,35 @@ Current reflection turn: ${conv.turn}`;
   conv.messages.push({ role: 'assistant', content: assistantText });
   if (conv.turn >= 8) clearConversation(chatId);
   return { done: false, message: assistantText, data: null };
+}
+
+const WEEKLY_COACHING_SYSTEM = `You are Jean-Mathieu's direct life coach, continuing a conversation after his weekly review.
+
+He just read your weekly coaching summary and is replying with thoughts, questions, or reactions.
+
+Style:
+- short, direct, warm
+- reference specific days/data from the week when relevant
+- no therapy language, no lectures
+- ask one sharp follow-up question at a time
+- focus on execution + what to change next week
+
+Rules:
+- Keep responses 2-6 sentences.
+- Be concrete — reference his actual data, not generic advice.
+- If he pushes back or shares context, adapt. Don't repeat the review.
+- End most replies with one actionable suggestion or probing question.
+`;
+
+export function startWeeklyCoaching(chatId, weeklyReviewText, weekContext) {
+  conversations.set(String(chatId), {
+    messages: [
+      { role: 'assistant', content: weeklyReviewText },
+    ],
+    context: weekContext,
+    turn: 0,
+    system: WEEKLY_COACHING_SYSTEM,
+  });
 }
 
 export async function generateWeeklyReview({ logs, breakLogs, avgMood }) {
