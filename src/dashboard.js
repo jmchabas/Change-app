@@ -155,16 +155,26 @@ router.post('/api/fitbit/sync-now', async (req, res) => {
 router.post('/api/admin/rescore', (req, res) => {
   try {
     const days = Math.min(Number(req.query.days) || 30, 365);
+    const dryRun = req.query.dry === '1';
     const logs = db.getRecentLogs(days);
-    const updated = [];
+    const results = [];
     for (const log of logs) {
       const r = computeDetailedScores(log);
-      if (r.daily_score !== log.daily_score || r.behavior_score !== log.behavior_score) {
-        db.updateScores(log.date, r);
-        updated.push({ date: log.date, old: log.daily_score, new: r.daily_score });
-      }
+      const changed = r.daily_score !== log.daily_score || r.behavior_score !== log.behavior_score;
+      if (changed && !dryRun) db.updateScores(log.date, r);
+      results.push({
+        date: log.date,
+        oldScore: log.daily_score,
+        newScore: r.daily_score,
+        oldBehavior: log.behavior_score,
+        newBehavior: r.behavior_score,
+        weekend: r.is_weekend,
+        activePts: r.active_possible_points,
+        changed,
+      });
     }
-    res.json({ ok: true, scanned: logs.length, updated });
+    const updated = results.filter(r => r.changed);
+    res.json({ ok: true, dryRun, scanned: logs.length, updatedCount: updated.length, results });
   } catch (err) {
     console.error('Rescore error:', err);
     res.status(500).json({ ok: false, error: err.message });
