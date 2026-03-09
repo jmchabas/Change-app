@@ -44,6 +44,10 @@ export function reflectionStartPrompt(score) {
   return `Got your form.\n\nToday score: ${score}/100.\n\nQuick reflection: what was the main driver of your day?`;
 }
 
+export function pastCheckinConfirmation(date, score) {
+  return `Got your form for ${date}.\n\nScore: ${score}/100. Data saved.`;
+}
+
 function arrowFromDelta(current, previous, lowerIsBetter = false) {
   const c = Number(current);
   const p = Number(previous);

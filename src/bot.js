@@ -1,6 +1,6 @@
 import { Bot } from 'grammy';
 import * as db from './db.js';
-import { getTodayHST, getTomorrowHST } from './scoring.js';
+import { getTodayHST, getTomorrowHST, getYesterdayHST } from './scoring.js';
 import * as msg from './messages.js';
 import { startCheckin, hasActiveConversation, continueCheckin, clearConversation } from './claude.js';
 import { createCheckinToken } from './checkin-link.js';
@@ -166,6 +166,13 @@ export function startTargetSettingForUser(chatId) {
 }
 
 export async function startReflectionForUser(chatId, checkinData) {
-  startCheckin(String(chatId), checkinData);
-  await sendMessage(chatId, msg.reflectionStartPrompt(checkinData.daily_score ?? '?'));
+  const today = getTodayHST();
+  const isToday = checkinData.date === today;
+
+  if (isToday) {
+    startCheckin(String(chatId), checkinData);
+    await sendMessage(chatId, msg.reflectionStartPrompt(checkinData.daily_score ?? '?'));
+  } else {
+    await sendMessage(chatId, msg.pastCheckinConfirmation(checkinData.date, checkinData.daily_score ?? '?'));
+  }
 }
