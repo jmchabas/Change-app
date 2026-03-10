@@ -1,10 +1,13 @@
 # LifeOS Improvement Plan
 
 > Generated 2026-02-17 — Living document, updated as we implement.
+> Last updated: 2026-03-09
+
+**Progress: Phase 1 ✅ · Phase 2 ✅ · Phase 3 ⬅️ NEXT · Phase 4–6 ⬜**
 
 ---
 
-## Phase 1 — Security Hardening ⬅️ START HERE
+## Phase 1 — Security Hardening ✅ COMPLETE
 
 | # | Issue | Severity | File(s) | Status |
 |---|-------|----------|---------|--------|
@@ -29,7 +32,7 @@
 
 ---
 
-## Phase 2 — Stability & Robustness
+## Phase 2 — Stability & Robustness ✅ COMPLETE
 
 | # | Issue | Severity | File(s) | Status |
 |---|-------|----------|---------|--------|
@@ -62,7 +65,7 @@
 
 ---
 
-## Phase 3 — Engagement Quick Wins
+## Phase 3 — Engagement Quick Wins ⬅️ NEXT
 
 | # | Feature | Impact | Complexity | Status |
 |---|---------|--------|------------|--------|
@@ -111,6 +114,20 @@
 | 6.3 | Reference lines on charts (80-pt green zone, bedtime target, 7h sleep min) | Medium | Medium | ⬜ TODO |
 | 6.4 | Weekend shading on all charts | Low | Simple | ⬜ TODO |
 | 6.5 | Tap data point → tooltip with full day breakdown | Low | Medium | ⬜ TODO |
+
+---
+
+## Ad-hoc Improvements (done outside the plan)
+
+| Date | Improvement | Files |
+|---|---|---|
+| 2026-03-09 | Compute sleep score from Fitbit stage data (API doesn't expose it) | `src/fitbit.js` |
+| 2026-03-09 | Weekend scoring: Sat/Sun only, "No" on optional = excluded from denominator | `src/scoring.js` |
+| 2026-03-09 | Rescore admin endpoint (`/api/admin/rescore`) for retroactive scoring fixes | `src/dashboard.js` |
+| 2026-03-09 | Target-setting state persisted to DB (survives deploys/restarts) | `src/bot.js`, `src/db.js` |
+| 2026-03-09 | Target-setting TTL extended to 4h, auto-cleared when Claude conversation starts | `src/bot.js`, `src/scheduler.js` |
+| 2026-03-09 | Weekly coaching review now starts a conversational follow-up with Claude | `src/claude.js`, `src/scheduler.js` |
+| 2026-03-09 | Friday no longer treated as weekend for scoring purposes | `src/scoring.js`, `public/checkin.html` |
 
 ---
 
