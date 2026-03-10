@@ -33,18 +33,18 @@
 
 | # | Issue | Severity | File(s) | Status |
 |---|-------|----------|---------|--------|
-| 2.1 | Conversation memory leak — Claude conversations Map never auto-expires | Medium | `src/claude.js:26` | ⬜ TODO |
-| 2.2 | Claude API response no null safety — empty content array crashes handler | Medium | `src/claude.js:81,131` | ⬜ TODO |
-| 2.3 | Claude API no retry — single 429/500 kills reflection or weekly review | Medium | `src/claude.js` | ⬜ TODO |
-| 2.4 | Fitbit token refresh race condition — concurrent syncs double-use refresh token | Medium | `src/fitbit.js:93-108` | ⬜ TODO |
-| 2.5 | `getWeekStartHST` timezone parsing bug — server-local TZ instead of configured TZ | Medium | `src/scoring.js:27-35` | ⬜ TODO |
-| 2.6 | Startup repair functions can crash app — no try-catch | Medium | `src/db.js:298-300` | ⬜ TODO |
-| 2.7 | Function names say "HST" but default TZ is Los Angeles — misleading | Medium | `src/scoring.js:3` | ⬜ TODO |
-| 2.8 | Stale daily claim keys accumulate in settings forever | Low | `src/db.js` | ⬜ TODO |
-| 2.9 | `insertBreakLogs` not wrapped in transaction — partial writes possible | Low | `src/db.js` | ⬜ TODO |
-| 2.10 | `bot.catch` swallows stack traces — only logs `.message` | Low | `src/bot.js:125` | ⬜ TODO |
-| 2.11 | `/api/history` returns all rows with no pagination | Low | `src/dashboard.js:63` | ⬜ TODO |
-| 2.12 | `repairHistoricalBedtimeScoring` full-table scan on every startup | Low | `src/db.js` | ⬜ TODO |
+| 2.1 | Conversation memory leak — Claude conversations Map never auto-expires | Medium | `src/claude.js:26` | ✅ DONE |
+| 2.2 | Claude API response no null safety — empty content array crashes handler | Medium | `src/claude.js:81,131` | ✅ DONE |
+| 2.3 | Claude API no retry — single 429/500 kills reflection or weekly review | Medium | `src/claude.js` | ✅ DONE |
+| 2.4 | Fitbit token refresh race condition — concurrent syncs double-use refresh token | Medium | `src/fitbit.js:93-108` | ✅ DONE |
+| 2.5 | `getWeekStartHST` timezone parsing bug — server-local TZ instead of configured TZ | Medium | `src/scoring.js:27-35` | ✅ DONE |
+| 2.6 | Startup repair functions can crash app — no try-catch | Medium | `src/db.js:298-300` | ✅ DONE |
+| 2.7 | Function names say "HST" but default TZ is Los Angeles — misleading | Medium | `src/scoring.js:3` | ✅ DONE |
+| 2.8 | Stale daily claim keys accumulate in settings forever | Low | `src/db.js` | ✅ DONE |
+| 2.9 | `insertBreakLogs` not wrapped in transaction — partial writes possible | Low | `src/db.js` | ✅ DONE |
+| 2.10 | `bot.catch` swallows stack traces — only logs `.message` | Low | `src/bot.js:125` | ✅ DONE |
+| 2.11 | `/api/history` returns all rows with no pagination | Low | `src/dashboard.js:63` | ✅ DONE |
+| 2.12 | `repairHistoricalBedtimeScoring` full-table scan on every startup | Low | `src/db.js` | ✅ DONE |
 
 **Fix approach:**
 - 2.1 → Add 2-hour TTL + `createdAt` timestamp to conversation Map entries
