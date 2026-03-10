@@ -40,6 +40,9 @@ function ensureDailyLogColumns() {
 }
 
 function repairHistoricalBedtimeScoring() {
+  const done = getDb().prepare("SELECT value FROM settings WHERE key = 'bedtime_scoring_repaired'").get();
+  if (done) return;
+
   const rows = getDb().prepare(`
     SELECT
       date,
@@ -129,6 +132,7 @@ function repairHistoricalBedtimeScoring() {
   if (updated > 0) {
     console.log(`Repaired historical bedtime scoring rows: ${updated}`);
   }
+  getDb().prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('bedtime_scoring_repaired', '1')").run();
 }
 
 function dateFromIsoInTz(iso) {
@@ -295,9 +299,9 @@ export function initDb() {
     );
   `);
 
-  ensureDailyLogColumns();
-  repairNullDateLogs();
-  repairHistoricalBedtimeScoring();
+  try { ensureDailyLogColumns(); } catch (err) { console.error('ensureDailyLogColumns error:', err.message); }
+  try { repairNullDateLogs(); } catch (err) { console.error('repairNullDateLogs error:', err.message); }
+  try { repairHistoricalBedtimeScoring(); } catch (err) { console.error('repairHistoricalBedtimeScoring error:', err.message); }
   return db;
 }
 
@@ -363,6 +367,18 @@ export function claimDailySetting(prefix, date) {
 export function releaseDailyClaim(prefix, date) {
   const key = `${prefix}:${date}`;
   getDb().prepare("DELETE FROM settings WHERE key = ? AND value LIKE 'claim:%'").run(key);
+}
+
+export function purgeStaleSettings(daysOld = 30) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - daysOld);
+  const cutoffDate = cutoff.toISOString().slice(0, 10);
+  const result = getDb().prepare(`
+    DELETE FROM settings
+    WHERE key LIKE '%_prompt_sent:%'
+      AND substr(key, instr(key, ':') + 1) < ?
+  `).run(cutoffDate);
+  return result.changes;
 }
 
 export function getChatId() { return getSetting('chat_id'); }
@@ -505,9 +521,12 @@ export function getDeliverables(date) {
 
 export function insertBreakLogs(date, breakReasons) {
   const stmt = getDb().prepare('INSERT INTO break_log (date, habit, reason) VALUES (?, ?, ?)');
-  for (const { habit, reason } of breakReasons) {
-    stmt.run(date, habit, reason);
-  }
+  const insertAll = getDb().transaction((items) => {
+    for (const { habit, reason } of items) {
+      stmt.run(date, habit, reason);
+    }
+  });
+  insertAll(breakReasons);
 }
 
 export function getBreakLogs(days = 7) {

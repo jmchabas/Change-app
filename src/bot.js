@@ -1,6 +1,6 @@
 import { Bot } from 'grammy';
 import * as db from './db.js';
-import { getTodayHST, getTomorrowHST, getYesterdayHST } from './scoring.js';
+import { getTodayLocal, getTomorrowLocal, getYesterdayLocal } from './scoring.js';
 import * as msg from './messages.js';
 import { startCheckin, hasActiveConversation, continueCheckin, clearConversation } from './claude.js';
 import { createCheckinToken } from './checkin-link.js';
@@ -65,7 +65,7 @@ export function createBot(token) {
   });
 
   bot.command('today', async (ctx) => {
-    const log = db.getDailyLog(getTodayHST());
+    const log = db.getDailyLog(getTodayLocal());
     await ctx.reply(msg.todaySummary(log));
   });
 
@@ -87,7 +87,7 @@ export function createBot(token) {
   });
 
   bot.command('status', async (ctx) => {
-    const today = getTodayHST();
+    const today = getTodayLocal();
     const targetsSent = db.getSetting(`targets_prompt_sent:${today}`) === '1';
     const checkinSent = db.getSetting(`checkin_prompt_sent:${today}`) === '1';
     const pending = getPendingTargets(ctx.chat.id);
@@ -137,7 +137,7 @@ export function createBot(token) {
         return;
       } else if (pending.type === 'targets_personal') {
         const { workTarget } = pending;
-        db.upsertDeliverables(getTomorrowHST(), workTarget, text);
+        db.upsertDeliverables(getTomorrowLocal(), workTarget, text);
         clearPendingTargets(chatId);
         await ctx.reply(msg.targetConfirmation(workTarget, text));
         return;
@@ -176,7 +176,7 @@ export async function sendMessage(chatId, text, options = {}) {
 export function startCheckinForUser(chatId) {
   clearPendingTargets(chatId);
   const baseUrl = process.env.APP_BASE_URL || 'http://localhost:3000';
-  const token = createCheckinToken({ chatId, date: getTodayHST(), ttlHours: 24 });
+  const token = createCheckinToken({ chatId, date: getTodayLocal(), ttlHours: 24 });
   const link = `${baseUrl.replace(/\/$/, '')}/checkin?token=${encodeURIComponent(token)}`;
   return sendMessage(chatId, msg.eveningCheckinPrompt(link));
 }
@@ -186,7 +186,7 @@ export function startTargetSettingForUser(chatId) {
 }
 
 export async function startReflectionForUser(chatId, checkinData) {
-  const today = getTodayHST();
+  const today = getTodayLocal();
   const isToday = checkinData.date === today;
 
   if (isToday) {

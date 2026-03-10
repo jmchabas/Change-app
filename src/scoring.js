@@ -1,38 +1,41 @@
-// --- Date helpers (always Hawaii time) ---
+// --- Date helpers (configured timezone, default America/Los_Angeles) ---
 
 const TZ = process.env.TZ || 'America/Los_Angeles';
 
-export function getTodayHST() {
+function formatInTz(date) {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date());
+  }).format(date);
 }
 
-export function getYesterdayHST() {
+export function getTodayLocal() {
+  return formatInTz(new Date());
+}
+
+export function getYesterdayLocal() {
   const d = new Date();
   d.setDate(d.getDate() - 1);
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(d);
+  return formatInTz(d);
 }
 
-export function getTomorrowHST() {
+export function getTomorrowLocal() {
   const d = new Date();
   d.setDate(d.getDate() + 1);
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(d);
+  return formatInTz(d);
 }
 
-export function getWeekStartHST() {
-  const now = new Date();
-  const hstStr = new Intl.DateTimeFormat('en-CA', {
-    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(now);
-  const d = new Date(hstStr + 'T00:00:00');
-  d.setDate(d.getDate() - d.getDay());
+export function getWeekStartLocal() {
+  const todayStr = formatInTz(new Date());
+  const d = new Date(todayStr + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay());
   return d.toISOString().slice(0, 10);
 }
+
+// Backwards-compatible aliases
+export { getTodayLocal as getTodayHST };
+export { getYesterdayLocal as getYesterdayHST };
+export { getTomorrowLocal as getTomorrowHST };
+export { getWeekStartLocal as getWeekStartHST };
 
 // --- Scoring ---
 

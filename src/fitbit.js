@@ -8,6 +8,8 @@ const TZ = process.env.TZ || 'America/Los_Angeles';
 const MAX_RETRIES = 3;
 const BASE_BACKOFF_MS = 800;
 
+let refreshPromise = null;
+
 class FitbitApiError extends Error {
   constructor(message, { status = null, retryable = false, path = '' } = {}) {
     super(message);
@@ -99,12 +101,22 @@ async function getValidAccessToken() {
   const expiresSoon = !tokens.expires_at || (Date.now() > (tokens.expires_at - 60_000));
   if (!expiresSoon && tokens.access_token) return tokens.access_token;
 
-  const refreshed = await tokenRequest({
-    grant_type: 'refresh_token',
-    refresh_token: tokens.refresh_token,
-  });
-  saveTokens(refreshed);
-  return refreshed.access_token;
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    try {
+      const refreshed = await tokenRequest({
+        grant_type: 'refresh_token',
+        refresh_token: tokens.refresh_token,
+      });
+      saveTokens(refreshed);
+      return refreshed.access_token;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
 }
 
 function sleep(ms) {

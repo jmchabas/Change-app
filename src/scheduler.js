@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import * as db from './db.js';
 import { sendMessage, startCheckinForUser, startTargetSettingForUser, clearPendingTargets } from './bot.js';
-import { getTodayHST, getYesterdayHST, getWeekStartHST, computeTrend } from './scoring.js';
+import { getTodayLocal, getYesterdayLocal, getWeekStartLocal, computeTrend } from './scoring.js';
 import { generateWeeklyReview, startWeeklyCoaching } from './claude.js';
 import { syncRecentFitbitData } from './fitbit.js';
 import * as msg from './messages.js';
@@ -71,7 +71,7 @@ export function startScheduler() {
   setTimeout(async () => {
     const chatId = db.getChatId();
     if (!chatId) return;
-    const today = getTodayHST();
+    const today = getTodayLocal();
     const mins = getNowMinutesInTz();
     try {
       if (mins >= (16 * 60 + 30) && mins <= (18 * 60)) {
@@ -95,12 +95,13 @@ export function startScheduler() {
     } catch (err) {
       console.error('Fitbit sync error:', err.message);
     }
+    try { db.purgeStaleSettings(30); } catch { /* best-effort */ }
   }, { timezone: TZ });
 
   // 4:30 PM (daily) — Target setting prompt + gym reminder
   cron.schedule('30 16 * * *', async () => {
     const chatId = db.getChatId();
-    const date = getTodayHST();
+    const date = getTodayLocal();
     try {
       const sent = await sendTargetPromptIfNeeded(chatId, date);
       if (sent) console.log('Target prompt sent');
@@ -112,7 +113,7 @@ export function startScheduler() {
   // 8:00 PM (daily) — Evening check-in with Claude
   cron.schedule('0 20 * * *', async () => {
     const chatId = db.getChatId();
-    const date = getTodayHST();
+    const date = getTodayLocal();
     try {
       const sent = await sendCheckinPromptIfNeeded(chatId, date);
       if (sent) console.log('Evening check-in prompt sent');
@@ -125,7 +126,7 @@ export function startScheduler() {
   cron.schedule('*/10 * * * *', async () => {
     const chatId = db.getChatId();
     if (!chatId) return;
-    const today = getTodayHST();
+    const today = getTodayLocal();
     const mins = getNowMinutesInTz();
     try {
       // Target prompt catch-up window: 4:30 PM -> 6:00 PM
@@ -154,8 +155,8 @@ export function startScheduler() {
       console.error('Morning Fitbit sync error:', err.message);
     }
 
-    const today = getTodayHST();
-    const yesterdayDate = getYesterdayHST();
+    const today = getTodayLocal();
+    const yesterdayDate = getYesterdayLocal();
     const prevDate = shiftDate(yesterdayDate, -1);
     const yesterday = db.getDailyLog(yesterdayDate);
     const previousDay = db.getDailyLog(prevDate);
@@ -191,7 +192,7 @@ export function startScheduler() {
     try {
       const coachingText = await generateWeeklyReview({ logs, breakLogs, avgMood });
       db.insertWeeklyReview({
-        week_start: getWeekStartHST(),
+        week_start: getWeekStartLocal(),
         avg_score: parseFloat(avgScore),
         avg_mood: avgMood ? parseFloat(avgMood) : null,
         coaching_text: coachingText,

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import * as db from './db.js';
-import { getTodayHST, getYesterdayHST, computeTrend, computeDetailedScores } from './scoring.js';
+import { getTodayLocal, getYesterdayLocal, computeTrend, computeDetailedScores } from './scoring.js';
 import {
   getFitbitAuthUrl,
   handleFitbitCallback,
@@ -92,7 +92,7 @@ function parseBoolOrNull(value) {
 }
 
 router.get('/api/today', (req, res) => {
-  const today = getTodayHST();
+  const today = getTodayLocal();
   const log = db.getDailyLog(today);
   const targets = db.getDeliverables(today);
   const wearable = sanitizeWearable(db.getWearableMetrics(today));
@@ -122,7 +122,8 @@ router.get('/api/wearables/history', (req, res) => {
 });
 
 router.get('/api/history', (req, res) => {
-  const logs = db.getAllLogs();
+  const limit = Math.min(Math.max(Number(req.query.limit) || 90, 1), 1000);
+  const logs = db.getRecentLogs(limit);
   res.json({ logs });
 });
 
@@ -183,7 +184,7 @@ router.post('/api/admin/rescore', (req, res) => {
 
 router.get('/api/fitbit/debug-score', async (req, res) => {
   try {
-    const date = req.query.date || getTodayHST();
+    const date = req.query.date || getTodayLocal();
     const debug = await debugFitbitSleepScore(date);
     res.json({ ok: true, date, debug });
   } catch (err) {
@@ -204,11 +205,11 @@ router.get('/api/checkin/latest-link', (req, res) => {
 
   const baseUrl = getBaseUrl(req).replace(/\/$/, '');
 
-  const today = getTodayHST();
+  const today = getTodayLocal();
   const todayToken = createCheckinToken({ chatId, date: today, ttlHours: 24 });
   const todayLink = `${baseUrl}/checkin?token=${encodeURIComponent(todayToken)}`;
 
-  const yesterday = getYesterdayHST();
+  const yesterday = getYesterdayLocal();
   const yesterdayToken = createCheckinToken({ chatId, date: yesterday, ttlHours: 24 });
   const yesterdayLink = `${baseUrl}/checkin?token=${encodeURIComponent(yesterdayToken)}`;
 

@@ -22,8 +22,27 @@ Rules:
 - End most replies with one concrete next action for tomorrow.
 `;
 
-// In-memory conversation state: chatId → { messages: [], context: string, turn: 0 }
+// In-memory conversation state: chatId → { messages: [], context: string, turn: 0, createdAt: number }
 const conversations = new Map();
+const CONV_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+function isConversationExpired(conv) {
+  return conv && conv.createdAt && Date.now() - conv.createdAt > CONV_TTL_MS;
+}
+
+async function callClaude(params, retries = 2) {
+  try {
+    return await client.messages.create(params);
+  } catch (err) {
+    const retryable = [429, 500, 502, 503, 529].includes(err.status);
+    if (retryable && retries > 0) {
+      const delay = (3 - retries) * 2000;
+      await new Promise(r => setTimeout(r, delay));
+      return callClaude(params, retries - 1);
+    }
+    throw err;
+  }
+}
 
 function formatContext(context) {
   if (!context) return 'No structured check-in context was provided.';
@@ -46,10 +65,16 @@ export function startCheckin(chatId, context = null) {
     messages: [],
     context: formatContext(context),
     turn: 0,
+    createdAt: Date.now(),
   });
 }
 
 export function hasActiveConversation(chatId) {
+  const conv = conversations.get(String(chatId));
+  if (conv && isConversationExpired(conv)) {
+    conversations.delete(String(chatId));
+    return false;
+  }
   return conversations.has(String(chatId));
 }
 
@@ -60,6 +85,10 @@ export function clearConversation(chatId) {
 export async function continueCheckin(chatId, userMessage) {
   const conv = conversations.get(String(chatId));
   if (!conv) throw new Error('No active check-in conversation');
+  if (isConversationExpired(conv)) {
+    conversations.delete(String(chatId));
+    throw new Error('No active check-in conversation');
+  }
 
   conv.messages.push({ role: 'user', content: userMessage });
   conv.turn++;
@@ -71,14 +100,14 @@ export async function continueCheckin(chatId, userMessage) {
 ${conv.context ? `Context:\n${conv.context}\n` : ''}
 Current conversation turn: ${conv.turn}`;
 
-  const response = await client.messages.create({
+  const response = await callClaude({
     model: MODEL,
     max_tokens: 500,
     system: systemWithTurn,
     messages: conv.messages,
   });
 
-  const assistantText = response.content[0].text;
+  const assistantText = response?.content?.[0]?.text || 'I had trouble generating a response. Try again.';
   conv.messages.push({ role: 'assistant', content: assistantText });
   if (conv.turn >= 8) clearConversation(chatId);
   return { done: false, message: assistantText, data: null };
@@ -110,6 +139,7 @@ export function startWeeklyCoaching(chatId, weeklyReviewText, weekContext) {
     context: weekContext,
     turn: 0,
     system: WEEKLY_COACHING_SYSTEM,
+    createdAt: Date.now(),
   });
 }
 
@@ -151,11 +181,11 @@ Write a weekly coaching review — direct, personal, under 180 words. Structure:
 
 No bullet points. Coach-speak. Reference his stress loop (work stress → escapes → bad evening) if relevant. He knows what to do — help him see what's actually happening.`;
 
-  const response = await client.messages.create({
+  const response = await callClaude({
     model: MODEL,
     max_tokens: 350,
     messages: [{ role: 'user', content: prompt }],
   });
 
-  return response.content[0].text;
+  return response?.content?.[0]?.text || 'I had trouble generating a response. Try again.';
 }
