@@ -8,7 +8,7 @@ import { syncRecentFitbitData } from './fitbit.js';
 
 let bot;
 
-const TARGET_FLOW_TTL_MS = 90 * 60 * 1000;
+const TARGET_FLOW_TTL_MS = 12 * 60 * 60 * 1000;
 const PENDING_KEY = 'pending_targets';
 
 function getPendingTargets(chatId) {
