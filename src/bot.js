@@ -8,7 +8,7 @@ import { syncRecentFitbitData } from './fitbit.js';
 
 let bot;
 
-const TARGET_FLOW_TTL_MS = 12 * 60 * 60 * 1000;
+const TARGET_FLOW_TTL_MS = 4 * 60 * 60 * 1000;
 const PENDING_KEY = 'pending_targets';
 
 function getPendingTargets(chatId) {
@@ -40,7 +40,7 @@ function updatePendingTargets(chatId, update) {
   db.setSetting(`${PENDING_KEY}:${Number(chatId)}`, JSON.stringify(state));
 }
 
-function clearPendingTargets(chatId) {
+export function clearPendingTargets(chatId) {
   db.deleteSetting(`${PENDING_KEY}:${Number(chatId)}`);
 }
 
@@ -190,6 +190,7 @@ export async function startReflectionForUser(chatId, checkinData) {
   const isToday = checkinData.date === today;
 
   if (isToday) {
+    clearPendingTargets(chatId);
     startCheckin(String(chatId), checkinData);
     await sendMessage(chatId, msg.reflectionStartPrompt(checkinData.daily_score ?? '?'));
   } else {

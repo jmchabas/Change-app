@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import * as db from './db.js';
-import { sendMessage, startCheckinForUser, startTargetSettingForUser } from './bot.js';
+import { sendMessage, startCheckinForUser, startTargetSettingForUser, clearPendingTargets } from './bot.js';
 import { getTodayHST, getYesterdayHST, getWeekStartHST, computeTrend } from './scoring.js';
 import { generateWeeklyReview, startWeeklyCoaching } from './claude.js';
 import { syncRecentFitbitData } from './fitbit.js';
@@ -196,6 +196,7 @@ export function startScheduler() {
         avg_mood: avgMood ? parseFloat(avgMood) : null,
         coaching_text: coachingText,
       });
+      clearPendingTargets(chatId);
       const fullMessage = `${msg.weeklyReviewIntro()}\nAvg: ${avgScore}/100  ·  Mood: ${avgMood ?? '?'}/10\n\n${coachingText}`;
       await sendMessage(chatId, fullMessage);
 
