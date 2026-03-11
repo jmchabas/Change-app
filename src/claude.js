@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import * as db from './db.js';
 
 const client = new Anthropic(); // uses ANTHROPIC_API_KEY env var
 const MODEL = 'claude-sonnet-4-6';
@@ -20,6 +21,7 @@ Rules:
 - Keep responses 2-6 sentences.
 - If there are misses, prioritize: escape media, outside-window meals, clean eve.
 - End most replies with one concrete next action for tomorrow.
+- When the user identifies a trigger or risk situation, suggest a specific if-then plan: "If [trigger], then [action]". Keep it concrete and actionable.
 `;
 
 // In-memory conversation state: chatId → { messages: [], context: string, turn: 0, createdAt: number }
@@ -46,7 +48,7 @@ async function callClaude(params, retries = 2) {
 
 function formatContext(context) {
   if (!context) return 'No structured check-in context was provided.';
-  return [
+  const lines = [
     `Daily score: ${context.daily_score ?? '?'} / 100 (behavior ${context.behavior_score ?? '?'}/80, state ${context.state_score ?? '?'}/20)`,
     `Escape media: ${context.escape_media_minutes ?? '?'} min`,
     `Meals outside windows: ${context.outside_window_meals ?? '?'}`,
@@ -57,13 +59,42 @@ function formatContext(context) {
     `Kids quality: ${context.kids_quality ? 'Yes' : 'No'}${context.kids_quality_note ? ` — ${context.kids_quality_note}` : ''}`,
     `Bed time: ${context.bed_time_text || '?'}`,
     `Mood: ${context.mood_1_10 ?? '?'} / 10`,
-  ].join('\n');
+  ];
+
+  const stackCheck = (v) => v === 1 ? '✓' : v === 0 ? '✗' : '?';
+  if (context.coffee != null || context.adhd_meds != null) {
+    lines.push(`Daily stack: coffee ${stackCheck(context.coffee)}, ADHD meds ${stackCheck(context.adhd_meds)}, gut bacteria ${stackCheck(context.gut_bacteria_mgr)}, gut movement ${stackCheck(context.gut_mvmt)}`);
+  }
+
+  if (context.recentDays?.length) {
+    lines.push('', 'RECENT DAYS:');
+    for (const d of context.recentDays) {
+      lines.push(`  ${d.date}: ${d.daily_score ?? '?'}/100, mood ${d.mood_1_10 ?? '?'}/10`);
+    }
+  }
+
+  if (context.streaks && Object.keys(context.streaks).length) {
+    const parts = Object.values(context.streaks).map(s => `${s.label}: ${s.count}d`);
+    lines.push('', `STREAKS: ${parts.join(' · ')}`);
+  }
+
+  if (context.commitment) {
+    lines.push('', `LAST COMMITMENT: "${context.commitment}"`);
+  }
+
+  if (context.morningPulse) {
+    const p = context.morningPulse;
+    lines.push('', `MORNING PULSE: energy ${p.energy}/5, clarity ${p.clarity}/5, intention ${p.intention}/5`);
+  }
+
+  return lines.join('\n');
 }
 
 export function startCheckin(chatId, context = null) {
   conversations.set(String(chatId), {
     messages: [],
     context: formatContext(context),
+    date: context?.date || null,
     turn: 0,
     createdAt: Date.now(),
   });
@@ -95,7 +126,15 @@ export async function continueCheckin(chatId, userMessage) {
 
   const baseSystem = conv.system || REFLECTION_SYSTEM;
 
-  const systemWithTurn = `${baseSystem}
+  let turnDirective = '';
+  if (!conv.system && conv.turn >= 6) {
+    turnDirective = '\nThis is near the end of the reflection. Ask for one specific commitment for tomorrow and confirm it clearly.';
+  }
+  if (!conv.system && conv.turn >= 3) {
+    turnDirective += '\nIf the user states a specific commitment or action, include it in your response prefixed with COMMITMENT: on its own line.';
+  }
+
+  const systemWithTurn = `${baseSystem}${turnDirective}
 
 ${conv.context ? `Context:\n${conv.context}\n` : ''}
 Current conversation turn: ${conv.turn}`;
@@ -109,8 +148,15 @@ Current conversation turn: ${conv.turn}`;
 
   const assistantText = response?.content?.[0]?.text || 'I had trouble generating a response. Try again.';
   conv.messages.push({ role: 'assistant', content: assistantText });
-  if (conv.turn >= 8) clearConversation(chatId);
-  return { done: false, message: assistantText, data: null };
+
+  const commitmentMatch = assistantText.match(/^COMMITMENT:\s*(.+)$/m);
+  if (commitmentMatch && conv.date) {
+    try { db.saveCommitment(conv.date, commitmentMatch[1].trim()); } catch { /* best effort */ }
+  }
+
+  const closing = conv.turn >= 8;
+  if (closing) clearConversation(chatId);
+  return { done: closing, message: assistantText, data: null };
 }
 
 const WEEKLY_COACHING_SYSTEM = `You are Jean-Mathieu's direct life coach, continuing a conversation after his weekly review.
@@ -143,7 +189,7 @@ export function startWeeklyCoaching(chatId, weeklyReviewText, weekContext) {
   });
 }
 
-export async function generateWeeklyReview({ logs, breakLogs, avgMood }) {
+export async function generateWeeklyReview({ logs, breakLogs, avgMood, wearableContext, stackStats, dayOfWeekPatterns }) {
   const yn = v => v === 1 ? '✓' : v === 0 ? '✗' : '?';
 
   const logsText = logs.map(l => {
@@ -164,6 +210,24 @@ export async function generateWeeklyReview({ logs, breakLogs, avgMood }) {
     ? breakLogs.map(b => `${b.date} ${b.habit}: ${b.reason}`).join('\n')
     : 'No specific break reasons logged.';
 
+  let extraSections = '';
+
+  if (wearableContext) {
+    extraSections += `\nWEARABLES:
+Avg sleep: ${wearableContext.avgSleep ?? '?'}h (prev week: ${wearableContext.prevAvgSleep ?? '?'}h)
+Avg RHR: ${wearableContext.avgRhr ?? '?'} bpm (prev week: ${wearableContext.prevAvgRhr ?? '?'} bpm)
+Avg sleep score: ${wearableContext.avgSleepScore ?? '?'} (prev week: ${wearableContext.prevAvgSleepScore ?? '?'})\n`;
+  }
+
+  if (stackStats) {
+    const items = Object.entries(stackStats).map(([k, v]) => `${k}: ${v}%`).join(', ');
+    extraSections += `\nDAILY STACK CONSISTENCY: ${items}\n`;
+  }
+
+  if (dayOfWeekPatterns) {
+    extraSections += `\nDAY-OF-WEEK PATTERNS (avg score):\n${dayOfWeekPatterns}\n`;
+  }
+
   const prompt = `Here is Jean-Mathieu's week:
 
 DAILY LOGS:
@@ -173,7 +237,7 @@ BREAK REASONS:
 ${breakText}
 
 Average mood: ${avgMood ?? 'unknown'}/10
-
+${extraSections}
 Write a weekly coaching review — direct, personal, under 180 words. Structure:
 1. The key pattern you actually see in the data (be specific — reference days and habits)
 2. The stress theme driving the misses, if visible

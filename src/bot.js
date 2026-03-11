@@ -1,4 +1,4 @@
-import { Bot } from 'grammy';
+import { Bot, InlineKeyboard } from 'grammy';
 import * as db from './db.js';
 import { getTodayLocal, getTomorrowLocal, getYesterdayLocal } from './scoring.js';
 import * as msg from './messages.js';
@@ -10,6 +10,7 @@ let bot;
 
 const TARGET_FLOW_TTL_MS = 4 * 60 * 60 * 1000;
 const PENDING_KEY = 'pending_targets';
+const PULSE_KEY = 'morning_pulse';
 
 function getPendingTargets(chatId) {
   const raw = db.getSetting(`${PENDING_KEY}:${Number(chatId)}`);
@@ -43,6 +44,33 @@ function updatePendingTargets(chatId, update) {
 export function clearPendingTargets(chatId) {
   db.deleteSetting(`${PENDING_KEY}:${Number(chatId)}`);
 }
+
+// --- Morning Pulse state (DB-persisted) ---
+
+function getPulseState(chatId) {
+  const raw = db.getSetting(`${PULSE_KEY}:${Number(chatId)}`);
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+function setPulseState(chatId, state) {
+  db.setSetting(`${PULSE_KEY}:${Number(chatId)}`, JSON.stringify(state));
+}
+
+function clearPulseState(chatId) {
+  db.deleteSetting(`${PULSE_KEY}:${Number(chatId)}`);
+}
+
+function pulseKeyboard(dimension) {
+  const kb = new InlineKeyboard();
+  for (let i = 1; i <= 5; i++) {
+    kb.text(`${i}`, `pulse_${dimension}_${i}`);
+  }
+  return kb;
+}
+
+const PULSE_LABELS = { energy: '⚡ Energy', clarity: '🧠 Mental clarity', intention: '🎯 Intention' };
+const PULSE_STEPS = ['energy', 'clarity', 'intention'];
 
 export function createBot(token) {
   bot = new Bot(token);
@@ -119,7 +147,9 @@ export function createBot(token) {
       try {
         const result = await continueCheckin(chatId, text);
         await ctx.reply(result.message);
-
+        if (result.done) {
+          await ctx.reply("Locked in. I'll remind you tomorrow morning.");
+        }
       } catch (err) {
         console.error('Check-in error:', err.message);
         clearConversation(chatId);
@@ -148,6 +178,46 @@ export function createBot(token) {
     await ctx.reply('Use /targets to set tomorrow targets. Check-in link arrives at 8:00pm.');
   });
 
+  // --- Morning pulse inline button callbacks ---
+  bot.callbackQuery(/^pulse_/, async (ctx) => {
+    const data = ctx.callbackQuery.data;
+    const chatId = ctx.callbackQuery.message?.chat?.id;
+    if (!chatId) return ctx.answerCallbackQuery();
+
+    const match = data.match(/^pulse_(energy|clarity|intention)_([1-5])$/);
+    if (!match) return ctx.answerCallbackQuery();
+
+    const dimension = match[1];
+    const value = Number(match[2]);
+    const state = getPulseState(chatId) || { date: getTodayLocal() };
+    state[dimension] = value;
+
+    const currentStep = PULSE_STEPS.indexOf(dimension);
+    const nextStep = currentStep + 1;
+
+    if (nextStep < PULSE_STEPS.length) {
+      setPulseState(chatId, state);
+      const filled = PULSE_STEPS.slice(0, nextStep)
+        .map(s => `${PULSE_LABELS[s]}: ${state[s]}/5 ✓`).join('\n');
+      const nextDim = PULSE_STEPS[nextStep];
+      await ctx.editMessageText(
+        `${filled}\n\n${PULSE_LABELS[nextDim]}:`,
+        { reply_markup: pulseKeyboard(nextDim) }
+      );
+    } else {
+      db.upsertMorningPulse(state.date, {
+        energy: state.energy,
+        clarity: state.clarity,
+        intention: state.intention,
+      });
+      clearPulseState(chatId);
+      const summary = PULSE_STEPS
+        .map(s => `${PULSE_LABELS[s]}: ${state[s]}/5`).join(' · ');
+      await ctx.editMessageText(`✅ Morning pulse saved\n${summary}`);
+    }
+    await ctx.answerCallbackQuery();
+  });
+
   bot.catch((err) => {
     console.error('Bot error:', err.error ?? err);
   });
@@ -165,12 +235,24 @@ export async function sendMessage(chatId, text, options = {}) {
   try {
     const payload = { disable_web_page_preview: true };
     if (options.html) payload.parse_mode = 'HTML';
+    if (options.reply_markup) payload.reply_markup = options.reply_markup;
     await bot.api.sendMessage(chatId, text, payload);
     return true;
   } catch (err) {
     console.error('Failed to send message:', err.message);
     return false;
   }
+}
+
+export async function sendPulsePrompt(chatId) {
+  if (!bot) return false;
+  const today = getTodayLocal();
+  const existing = db.getMorningPulse(today);
+  if (existing) return false;
+  setPulseState(chatId, { date: today });
+  return sendMessage(chatId, `${PULSE_LABELS.energy}:`, {
+    reply_markup: pulseKeyboard('energy'),
+  });
 }
 
 export function startCheckinForUser(chatId) {
@@ -192,8 +274,8 @@ export async function startReflectionForUser(chatId, checkinData) {
   if (isToday) {
     clearPendingTargets(chatId);
     startCheckin(String(chatId), checkinData);
-    await sendMessage(chatId, msg.reflectionStartPrompt(checkinData.daily_score ?? '?'));
+    await sendMessage(chatId, msg.reflectionStartPrompt(checkinData.daily_score ?? '?', checkinData.mood_1_10));
   } else {
-    await sendMessage(chatId, msg.pastCheckinConfirmation(checkinData.date, checkinData.daily_score ?? '?'));
+    await sendMessage(chatId, msg.pastCheckinConfirmation(checkinData.date, checkinData.daily_score ?? '?', checkinData.mood_1_10));
   }
 }

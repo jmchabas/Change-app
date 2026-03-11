@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import * as db from './db.js';
-import { getTodayLocal, getYesterdayLocal, computeTrend, computeDetailedScores } from './scoring.js';
+import { getTodayLocal, getYesterdayLocal, computeTrend, computeDetailedScores, computeStreaks } from './scoring.js';
 import {
   getFitbitAuthUrl,
   handleFitbitCallback,
@@ -182,6 +182,137 @@ router.post('/api/admin/rescore', (req, res) => {
   }
 });
 
+router.get('/api/pulse', (req, res) => {
+  const today = getTodayLocal();
+  const todayPulse = db.getMorningPulse(today);
+  const recent = db.getRecentMorningPulses(14);
+  res.json({ today: todayPulse || null, recent });
+});
+
+router.get('/api/correlations', (req, res) => {
+  try {
+    const logs = db.getRecentLogs(90);
+    const wearables = db.getRecentWearableMetrics(90);
+    const wearableMap = {};
+    for (const w of wearables) wearableMap[w.date] = w;
+
+    function pearson(pairs) {
+      const n = pairs.length;
+      if (n < 7) return null;
+      const sumX = pairs.reduce((s, p) => s + p[0], 0);
+      const sumY = pairs.reduce((s, p) => s + p[1], 0);
+      const sumXY = pairs.reduce((s, p) => s + p[0] * p[1], 0);
+      const sumX2 = pairs.reduce((s, p) => s + p[0] * p[0], 0);
+      const sumY2 = pairs.reduce((s, p) => s + p[1] * p[1], 0);
+      const num = n * sumXY - sumX * sumY;
+      const den = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+      if (den === 0) return null;
+      return { r: Math.round((num / den) * 1000) / 1000, n };
+    }
+
+    function avgByGroup(pairs) {
+      const yes = pairs.filter(p => p[0] === 1).map(p => p[1]);
+      const no = pairs.filter(p => p[0] === 0).map(p => p[1]);
+      if (yes.length < 3 || no.length < 3) return null;
+      const yesAvg = yes.reduce((a, b) => a + b, 0) / yes.length;
+      const noAvg = no.reduce((a, b) => a + b, 0) / no.length;
+      return { delta: Math.round((yesAvg - noAvg) * 10) / 10, yesAvg: Math.round(yesAvg * 10) / 10, noAvg: Math.round(noAvg * 10) / 10, yesN: yes.length, noN: no.length };
+    }
+
+    const sorted = [...logs].sort((a, b) => a.date.localeCompare(b.date));
+    const nextDayMap = {};
+    for (let i = 0; i < sorted.length - 1; i++) nextDayMap[sorted[i].date] = sorted[i + 1];
+
+    const correlations = [];
+
+    // Sleep hours vs daily_score
+    const sleepVsScore = logs
+      .filter(l => l.daily_score != null && wearableMap[l.date]?.sleep_hours > 0)
+      .map(l => [wearableMap[l.date].sleep_hours, l.daily_score]);
+    const sleepScoreR = pearson(sleepVsScore);
+    if (sleepScoreR) correlations.push({ pair: 'Sleep hours → Day score', ...sleepScoreR, type: 'continuous' });
+
+    // Sleep hours vs mood
+    const sleepVsMood = logs
+      .filter(l => l.mood_1_10 != null && wearableMap[l.date]?.sleep_hours > 0)
+      .map(l => [wearableMap[l.date].sleep_hours, l.mood_1_10]);
+    const sleepMoodR = pearson(sleepVsMood);
+    if (sleepMoodR) correlations.push({ pair: 'Sleep hours → Mood', ...sleepMoodR, type: 'continuous' });
+
+    // Gym vs score (same day)
+    const gymPairs = logs.filter(l => l.gym != null && l.daily_score != null).map(l => [l.gym, l.daily_score]);
+    const gymDelta = avgByGroup(gymPairs);
+    if (gymDelta) correlations.push({ pair: 'Gym → Day score', ...gymDelta, type: 'binary' });
+
+    // Gym vs next-day score
+    const gymNextPairs = sorted
+      .filter(l => l.gym != null && nextDayMap[l.date]?.daily_score != null)
+      .map(l => [l.gym, nextDayMap[l.date].daily_score]);
+    const gymNextDelta = avgByGroup(gymNextPairs);
+    if (gymNextDelta) correlations.push({ pair: 'Gym → Next-day score', ...gymNextDelta, type: 'binary' });
+
+    // RHR vs score
+    const rhrVsScore = logs
+      .filter(l => l.daily_score != null && wearableMap[l.date]?.resting_hr != null)
+      .map(l => [wearableMap[l.date].resting_hr, l.daily_score]);
+    const rhrScoreR = pearson(rhrVsScore);
+    if (rhrScoreR) correlations.push({ pair: 'Resting HR → Day score', ...rhrScoreR, type: 'continuous' });
+
+    // Coffee vs score
+    const coffeePairs = logs.filter(l => l.coffee != null && l.daily_score != null).map(l => [l.coffee, l.daily_score]);
+    const coffeeDelta = avgByGroup(coffeePairs);
+    if (coffeeDelta) correlations.push({ pair: 'Coffee → Day score', ...coffeeDelta, type: 'binary' });
+
+    // Escape media vs mood
+    const escapeVsMood = logs
+      .filter(l => l.escape_media_minutes != null && l.mood_1_10 != null)
+      .map(l => [l.escape_media_minutes, l.mood_1_10]);
+    const escapeMoodR = pearson(escapeVsMood);
+    if (escapeMoodR) correlations.push({ pair: 'Escape media mins → Mood', ...escapeMoodR, type: 'continuous' });
+
+    // Bed time vs next-day score
+    const bedNextPairs = sorted
+      .filter(l => l.bed_time_minutes != null && nextDayMap[l.date]?.daily_score != null)
+      .map(l => [l.bed_time_minutes, nextDayMap[l.date].daily_score]);
+    const bedNextR = pearson(bedNextPairs);
+    if (bedNextR) correlations.push({ pair: 'Bed time → Next-day score', ...bedNextR, type: 'continuous' });
+
+    // Clean evening vs next-day score
+    const cleanNextPairs = sorted
+      .filter(l => l.clean_evening != null && nextDayMap[l.date]?.daily_score != null)
+      .map(l => [l.clean_evening, nextDayMap[l.date].daily_score]);
+    const cleanNextDelta = avgByGroup(cleanNextPairs);
+    if (cleanNextDelta) correlations.push({ pair: 'Clean Eve → Next-day score', ...cleanNextDelta, type: 'binary' });
+
+    // Morning pulse correlations
+    try {
+      const pulses = db.getRecentMorningPulses(90);
+      const pulseMap = {};
+      for (const p of pulses) pulseMap[p.date] = p;
+
+      for (const dim of ['energy', 'clarity', 'intention']) {
+        const label = dim.charAt(0).toUpperCase() + dim.slice(1);
+        const pairs = logs
+          .filter(l => l.daily_score != null && pulseMap[l.date]?.[dim] != null)
+          .map(l => [pulseMap[l.date][dim], l.daily_score]);
+        const r = pearson(pairs);
+        if (r) correlations.push({ pair: `AM ${label} → Day score`, ...r, type: 'continuous' });
+      }
+    } catch { /* pulse table may not exist yet */ }
+
+    correlations.sort((a, b) => {
+      const absA = a.type === 'binary' ? Math.abs(a.delta) : Math.abs(a.r) * 100;
+      const absB = b.type === 'binary' ? Math.abs(b.delta) : Math.abs(b.r) * 100;
+      return absB - absA;
+    });
+
+    res.json({ ok: true, correlations });
+  } catch (err) {
+    console.error('Correlations error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 router.get('/api/fitbit/debug-score', async (req, res) => {
   try {
     const date = req.query.date || getTodayLocal();
@@ -328,6 +459,14 @@ router.post('/api/checkin/submit', async (req, res) => {
       db.insertBreakLogs(date, breakReasons);
     }
 
+    const recentLogs = db.getRecentLogs(14);
+    const recentDays = recentLogs.slice(0, 3).map(l => ({
+      date: l.date, daily_score: l.daily_score, mood_1_10: l.mood_1_10,
+    }));
+    const streaks = computeStreaks(recentLogs);
+    const yesterdayCommitment = db.getCommitment(getYesterdayLocal());
+    const morningPulse = db.getMorningPulse(date);
+
     const reflectionContext = {
       ...scored,
       date,
@@ -344,6 +483,10 @@ router.post('/api/checkin/submit', async (req, res) => {
       adhd_meds: supportStack.includes('adhd_meds') ? 1 : 0,
       gut_bacteria_mgr: supportStack.includes('gut_bacteria_mgr') ? 1 : 0,
       gut_mvmt: supportStack.includes('gut_mvmt') ? 1 : 0,
+      recentDays,
+      streaks,
+      commitment: yesterdayCommitment,
+      morningPulse,
     };
 
     await startReflectionForUser(chatId, reflectionContext);

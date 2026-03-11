@@ -40,12 +40,12 @@ export function eveningCheckinPrompt(link) {
   return `Evening check-in time.\n\nOpen this link and submit today's form:\n${link}\n\nAfter you submit, we'll do a short reflection here.`;
 }
 
-export function reflectionStartPrompt(score) {
-  return `Got your form.\n\nToday score: ${score}/100.\n\nQuick reflection: what was the main driver of your day?`;
+export function reflectionStartPrompt(score, mood) {
+  return `Got your form.\n\nExecution: ${score}/100 · Mood: ${mood ?? '?'}/10\n\nQuick reflection: what was the main driver of your day?`;
 }
 
-export function pastCheckinConfirmation(date, score) {
-  return `Got your form for ${date}.\n\nScore: ${score}/100. Data saved.`;
+export function pastCheckinConfirmation(date, score, mood) {
+  return `Got your form for ${date}.\n\nExecution: ${score}/100 · Mood: ${mood ?? '?'}/10. Data saved.`;
 }
 
 function arrowFromDelta(current, previous, lowerIsBetter = false) {
@@ -57,7 +57,7 @@ function arrowFromDelta(current, previous, lowerIsBetter = false) {
   return '';
 }
 
-export function morningBrief({ yesterday, previousDay, targets, trend, wearable, rhrCurrent, rhrPrevious }) {
+export function morningBrief({ yesterday, previousDay, targets, trend, wearable, rhrCurrent, rhrPrevious, streaks, commitment }) {
   const yn = v => v === 1 ? '✓' : v === 0 ? '✗' : '–';
 
   let scoreBlock = 'No log for yesterday.';
@@ -70,11 +70,32 @@ export function morningBrief({ yesterday, previousDay, targets, trend, wearable,
     const rhrArrow = arrowFromDelta(rhrCurrent, rhrPrevious, true);
     const bedTime = yesterday.bed_time_text || '?';
     scoreBlock = [
-      `Yesterday: ${yesterday.daily_score ?? '?'}/100${scoreArrow}  mood ${yesterday.mood_1_10 ?? '?'}/10${moodArrow}  RHR ${rhrCurrent ?? '?'}${rhrArrow}${clusterNote}`,
+      `Yesterday: exec ${yesterday.daily_score ?? '?'}/100${scoreArrow} · mood ${yesterday.mood_1_10 ?? '?'}/10${moodArrow} · RHR ${rhrCurrent ?? '?'}${rhrArrow}${clusterNote}`,
       `Focus ${yn(yesterday.no_escape_media)} (${yesterday.escape_media_minutes ?? '?'}m) · Eating ${yn(yesterday.fixed_eating)} (${yesterday.outside_window_meals ?? '?'} off-window) · Clean Eve ${yn(yesterday.clean_evening)}`,
       `Work ${yn(yesterday.work_win)} · Personal ${yn(yesterday.personal_win)} · Gym ${yn(yesterday.gym)}`,
       `Kids ${yn(yesterday.kids_quality)} · Bed ${yn(yesterday.bed_on_time)} (${bedTime})`,
     ].join('\n');
+  }
+
+  let streakLine = '';
+  if (streaks && Object.keys(streaks).length > 0) {
+    const parts = Object.values(streaks)
+      .filter(s => s.count >= 2)
+      .sort((a, b) => b.count - a.count)
+      .map(s => `${s.label}: ${s.count}d`);
+    if (parts.length) streakLine = `🔥 ${parts.join(' · ')}\n`;
+  }
+
+  let riskLine = '';
+  if (yesterday) {
+    const stressMisses = [yesterday.no_escape_media, yesterday.fixed_eating, yesterday.clean_evening]
+      .filter(v => v === 0).length;
+    if (stressMisses >= 2) riskLine = '⚠️ Risk: stress cluster active yesterday\n';
+  }
+
+  let commitmentLine = '';
+  if (commitment) {
+    commitmentLine = `Last night you said: "${commitment}"\n`;
   }
 
   const trendLine = trend ? `Trend: ${trend}\n` : '';
@@ -87,7 +108,7 @@ export function morningBrief({ yesterday, previousDay, targets, trend, wearable,
     targetsBlock = `Today's mission:\n→ Work: ${targets.work_target || '-'}\n→ Personal: ${targets.personal_target || '-'}`;
   }
 
-  return `Morning.\n\n${scoreBlock}\n${wearableLine}\n${trendLine}\n${targetsBlock}`;
+  return `Morning.\n\n${scoreBlock}\n${streakLine}${riskLine}${commitmentLine}${wearableLine}\n${trendLine}\n${targetsBlock}`;
 }
 
 export function weeklyReviewIntro() {
@@ -98,7 +119,7 @@ export function todaySummary(log) {
   if (!log) return 'No check-in logged today yet.';
   const yn = v => v === 1 ? '✓' : v === 0 ? '✗' : '?';
   return [
-    `Today (${log.date}): ${log.daily_score ?? '?'}/100  mood ${log.mood_1_10 ?? '?'}/10`,
+    `Today (${log.date}): exec ${log.daily_score ?? '?'}/100 · mood ${log.mood_1_10 ?? '?'}/10`,
     `Focus ${yn(log.no_escape_media)} (${log.escape_media_minutes ?? '?'}m) · Eating ${yn(log.fixed_eating)} (${log.outside_window_meals ?? '?'} off-window) · Clean Eve ${yn(log.clean_evening)}`,
     `Work ${yn(log.work_win)} · Personal ${yn(log.personal_win)} · Gym ${yn(log.gym)}`,
     `Kids ${yn(log.kids_quality)} · Bed ${log.bed_time_text || '?'}`,
@@ -112,6 +133,6 @@ export function weekSummary(logs) {
   const avgMood = logs.filter(l => l.mood_1_10).length > 0
     ? (logs.reduce((s, l) => s + (l.mood_1_10 || 0), 0) / logs.filter(l => l.mood_1_10).length).toFixed(1)
     : '?';
-  const lines = logs.map(r => `${r.date}: ${r.daily_score ?? '?'}/100  mood ${r.mood_1_10 ?? '?'}/10`);
-  return `Last ${logs.length} days:\n${lines.join('\n')}\n\nAvg: ${avg}/100  Avg mood: ${avgMood}/10`;
+  const lines = logs.map(r => `${r.date}: exec ${r.daily_score ?? '?'}/100 · mood ${r.mood_1_10 ?? '?'}/10`);
+  return `Last ${logs.length} days:\n${lines.join('\n')}\n\nAvg exec: ${avg}/100  Avg mood: ${avgMood}/10`;
 }

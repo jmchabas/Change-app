@@ -31,6 +31,33 @@ export function getWeekStartLocal() {
   return d.toISOString().slice(0, 10);
 }
 
+// --- Streaks ---
+
+const STREAK_HABITS = [
+  'no_escape_media', 'fixed_eating', 'clean_evening',
+  'work_win', 'personal_win', 'gym', 'kids_quality', 'bed_on_time',
+];
+const STREAK_LABELS = {
+  no_escape_media: 'Focus', fixed_eating: 'Eating', clean_evening: 'Clean Eve',
+  work_win: 'Work win', personal_win: 'Perso win', gym: 'Gym',
+  kids_quality: 'Kids', bed_on_time: 'Bed',
+};
+
+export function computeStreaks(logs) {
+  const sorted = [...logs].sort((a, b) => b.date.localeCompare(a.date));
+  const streaks = {};
+  for (const key of STREAK_HABITS) {
+    let count = 0;
+    for (const log of sorted) {
+      if (log[key] === 1) count++;
+      else if (log[key] === 0) break;
+      else continue; // null = skip (e.g. weekend optional)
+    }
+    if (count > 0) streaks[key] = { count, label: STREAK_LABELS[key] };
+  }
+  return streaks;
+}
+
 // Backwards-compatible aliases
 export { getTodayLocal as getTodayHST };
 export { getYesterdayLocal as getYesterdayHST };
@@ -167,15 +194,12 @@ export function computeDetailedScores(input) {
   const bedScore = bedActive ? scoreBedtime(bedTimeMinutes) : 0;
 
   const behaviorScore = escapeScore + mealsScore + cleanScore + workScore + personalScore + gymScore + kidsScore + bedScore;
-  const stateScore = mood * 2; // /20
-  const earnedPoints = behaviorScore + stateScore;
-  const activePossiblePoints = weekend
-    ? 70 + (workActive ? 10 : 0) + (personalActive ? 10 : 0) + (bedActive ? 10 : 0)
-    : 100;
-  const dailyScore = activePossiblePoints > 0
-    ? (weekend
-      ? Math.round((earnedPoints / activePossiblePoints) * 1000) / 10
-      : earnedPoints)
+  const stateScore = mood * 2; // tracked separately, not in daily_score
+  const activeBehaviorPoints = weekend
+    ? 50 + (workActive ? 10 : 0) + (personalActive ? 10 : 0) + (bedActive ? 10 : 0)
+    : 80;
+  const dailyScore = activeBehaviorPoints > 0
+    ? Math.round((behaviorScore / activeBehaviorPoints) * 1000) / 10
     : 0;
 
   // Keep legacy 0/8 score for backwards compatibility.
@@ -206,8 +230,8 @@ export function computeDetailedScores(input) {
     mood_1_10: mood,
     behavior_score: behaviorScore,
     state_score: stateScore,
-    earned_points: earnedPoints,
-    active_possible_points: activePossiblePoints,
+    earned_points: behaviorScore,
+    active_possible_points: activeBehaviorPoints,
     daily_score: dailyScore,
     no_escape_media: legacyPasses.no_escape_media,
     fixed_eating: legacyPasses.fixed_eating,

@@ -30,6 +30,7 @@ function ensureDailyLogColumns() {
     ['adhd_meds', 'INTEGER'],
     ['gut_bacteria_mgr', 'INTEGER'],
     ['gut_mvmt', 'INTEGER'],
+    ['reflection_commitment', "TEXT DEFAULT ''"],
   ];
 
   for (const [name, type] of needed) {
@@ -297,6 +298,14 @@ export function initDb() {
       key               TEXT PRIMARY KEY,
       value             TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS morning_pulse (
+      date              TEXT PRIMARY KEY,
+      energy            INTEGER,
+      clarity           INTEGER,
+      intention         INTEGER,
+      created_at        TEXT DEFAULT (datetime('now'))
+    );
   `);
 
   try { ensureDailyLogColumns(); } catch (err) { console.error('ensureDailyLogColumns error:', err.message); }
@@ -548,4 +557,36 @@ export function insertWeeklyReview(data) {
 
 export function getRecentReviews(count = 4) {
   return getDb().prepare('SELECT * FROM weekly_review ORDER BY week_start DESC LIMIT ?').all(count);
+}
+
+// --- Morning Pulse ---
+
+export function upsertMorningPulse(date, { energy, clarity, intention }) {
+  getDb().prepare(`
+    INSERT INTO morning_pulse (date, energy, clarity, intention)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(date) DO UPDATE SET
+      energy = ?, clarity = ?, intention = ?, created_at = datetime('now')
+  `).run(date, energy, clarity, intention, energy, clarity, intention);
+}
+
+export function getMorningPulse(date) {
+  return getDb().prepare('SELECT * FROM morning_pulse WHERE date = ?').get(date);
+}
+
+export function getRecentMorningPulses(days = 14) {
+  return getDb().prepare('SELECT * FROM morning_pulse ORDER BY date DESC LIMIT ?').all(days);
+}
+
+// --- Reflection Commitments ---
+
+export function saveCommitment(date, text) {
+  getDb().prepare(
+    'UPDATE daily_log SET reflection_commitment = ? WHERE date = ?'
+  ).run(text, date);
+}
+
+export function getCommitment(date) {
+  const row = getDb().prepare('SELECT reflection_commitment FROM daily_log WHERE date = ?').get(date);
+  return row?.reflection_commitment || null;
 }

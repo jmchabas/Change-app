@@ -47,10 +47,10 @@ test('0) friday is a weekday', () => {
     mood_1_10: 8,
   });
   assertEqual(s.is_weekend, false, 'Friday should be a weekday');
-  assertEqual(s.active_possible_points, 100, 'Friday denominator should be full 100');
+  assertEqual(s.active_possible_points, 80, 'Friday denominator should be behavior-only 80');
 });
 
-test('1) weekend, no optional filled', () => {
+test('1) weekend, no optional filled → perfect on required', () => {
   const s = computeDetailedScores({
     date: '2026-03-07', // Saturday
     escape_media_minutes: 0,
@@ -64,8 +64,8 @@ test('1) weekend, no optional filled', () => {
     mood_1_10: 8,
   });
   assertEqual(s.is_weekend, true, 'should detect weekend');
-  assertEqual(s.active_possible_points, 70, 'denominator should stay required-only');
-  assertApprox(s.daily_score, 94.3, 0.05, 'weekend score');
+  assertEqual(s.active_possible_points, 50, 'denominator = 5 required habits × 10');
+  assertApprox(s.daily_score, 100, 0.05, 'perfect on all required = 100');
 });
 
 test('2) weekend, "No" on optional excludes it (same as blank)', () => {
@@ -81,8 +81,8 @@ test('2) weekend, "No" on optional excludes it (same as blank)', () => {
     bed_time_text: '',
     mood_1_10: 8,
   });
-  assertEqual(s.active_possible_points, 70, '"No" on weekend optional should not increase denominator');
-  assertApprox(s.daily_score, 94.3, 0.05, 'same score as all-blank optionals');
+  assertEqual(s.active_possible_points, 50, '"No" on weekend optional should not increase denominator');
+  assertApprox(s.daily_score, 100, 0.05, 'same score as all-blank optionals');
 });
 
 test('3) weekend, invalid optional input (excluded)', () => {
@@ -98,8 +98,8 @@ test('3) weekend, invalid optional input (excluded)', () => {
     bed_time_text: 'not-a-time',
     mood_1_10: 8,
   });
-  assertEqual(s.active_possible_points, 70, 'invalid optional inputs should not change denominator');
-  assertApprox(s.daily_score, 94.3, 0.05, 'invalid optional inputs should not change score');
+  assertEqual(s.active_possible_points, 50, 'invalid optional inputs should not change denominator');
+  assertApprox(s.daily_score, 100, 0.05, 'invalid optional inputs should not change score');
 });
 
 test('4) weekend, all optional "Yes" fills denominator', () => {
@@ -115,13 +115,13 @@ test('4) weekend, all optional "Yes" fills denominator', () => {
     bed_time_text: '9:25pm',
     mood_1_10: 8,
   });
-  assertEqual(s.active_possible_points, 100, 'all Yes optionals should give full denominator');
-  assertApprox(s.daily_score, 96, 0.05, 'weekend score with all optional Yes');
+  assertEqual(s.active_possible_points, 80, 'all Yes optionals should give behavior max 80');
+  assertApprox(s.daily_score, 100, 0.05, 'weekend score with all optional Yes and all passed');
 });
 
 console.log('\nWeekday scoring:');
 
-test('5) weekday regression unchanged', () => {
+test('5) weekday — execution only, mood excluded', () => {
   const s = computeDetailedScores({
     date: '2026-03-04', // Wednesday
     escape_media_minutes: 15,  // 8
@@ -132,11 +132,14 @@ test('5) weekday regression unchanged', () => {
     gym: true,                 // 10
     kids_quality: false,       // 0
     bed_time_text: '10:00pm',  // 8
-    mood_1_10: 7,              // 14
+    mood_1_10: 7,              // tracked separately
   });
+  // behavior = 8+6+10+0+10+10+0+8 = 52
   assertEqual(s.is_weekend, false, 'should detect weekday');
-  assertEqual(s.active_possible_points, 100, 'weekday denominator remains fixed');
-  assertEqual(s.daily_score, 66, 'weekday formula remains behavior + state');
+  assertEqual(s.active_possible_points, 80, 'weekday denominator is behavior-only 80');
+  assertEqual(s.daily_score, 65, 'weekday execution score = (52/80)*100');
+  assertEqual(s.state_score, 14, 'state score still tracked');
+  assertEqual(s.mood_1_10, 7, 'mood still stored');
 });
 
 // --- Summary ---

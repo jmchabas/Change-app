@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import * as db from './db.js';
-import { sendMessage, startCheckinForUser, startTargetSettingForUser, clearPendingTargets } from './bot.js';
-import { getTodayLocal, getYesterdayLocal, getWeekStartLocal, computeTrend } from './scoring.js';
+import { sendMessage, startCheckinForUser, startTargetSettingForUser, clearPendingTargets, sendPulsePrompt } from './bot.js';
+import { getTodayLocal, getYesterdayLocal, getWeekStartLocal, computeTrend, computeStreaks } from './scoring.js';
 import { generateWeeklyReview, startWeeklyCoaching } from './claude.js';
 import { syncRecentFitbitData } from './fitbit.js';
 import * as msg from './messages.js';
@@ -167,11 +167,18 @@ export function startScheduler() {
     const rhrCurrent = recentWearables[0]?.resting_hr ?? null;
     const rhrPrevious = recentWearables[1]?.resting_hr ?? null;
     const targets = db.getDeliverables(today);
-    const logs = db.getRecentLogs(7);
-    const trend = computeTrend(logs);
+    const logs = db.getRecentLogs(14);
+    const trend = computeTrend(logs.slice(0, 7));
+    const streaks = computeStreaks(logs);
+    const commitment = db.getCommitment(yesterdayDate);
     await sendMessage(chatId, msg.morningBrief({
       yesterday, previousDay, targets, trend, wearable, rhrCurrent, rhrPrevious,
+      streaks, commitment,
     }));
+
+    try { await sendPulsePrompt(chatId); } catch (err) {
+      console.error('Morning pulse prompt error:', err.message);
+    }
   }, { timezone: TZ });
 
   // 5:00 PM Sunday — Weekly coaching review (Claude)
@@ -189,8 +196,56 @@ export function startScheduler() {
       : null;
     const avgScore = (logs.reduce((s, l) => s + (l.daily_score ?? l.total_score ?? 0), 0) / logs.length).toFixed(1);
 
+    // 4.5 — Wearable context
+    let wearableContext = null;
     try {
-      const coachingText = await generateWeeklyReview({ logs, breakLogs, avgMood });
+      const wearables = db.getRecentWearableMetrics(14);
+      const thisWeek = wearables.slice(0, 7).filter(w => w.sleep_hours > 0);
+      const prevWeek = wearables.slice(7, 14).filter(w => w.sleep_hours > 0);
+      const avg = (arr, key) => arr.length ? Math.round(arr.reduce((s, w) => s + (w[key] || 0), 0) / arr.length * 10) / 10 : null;
+      wearableContext = {
+        avgSleep: avg(thisWeek, 'sleep_hours'),
+        prevAvgSleep: avg(prevWeek, 'sleep_hours'),
+        avgRhr: avg(thisWeek.filter(w => w.resting_hr), 'resting_hr'),
+        prevAvgRhr: avg(prevWeek.filter(w => w.resting_hr), 'resting_hr'),
+        avgSleepScore: avg(thisWeek.filter(w => w.sleep_score), 'sleep_score'),
+        prevAvgSleepScore: avg(prevWeek.filter(w => w.sleep_score), 'sleep_score'),
+      };
+    } catch { /* best effort */ }
+
+    // 5.3 — Stack consistency stats
+    let stackStats = null;
+    try {
+      const stackKeys = ['coffee', 'adhd_meds', 'gut_bacteria_mgr', 'gut_mvmt'];
+      const stackLabels = { coffee: 'Coffee', adhd_meds: 'ADHD meds', gut_bacteria_mgr: 'Gut bact.', gut_mvmt: 'Gut mvmt' };
+      stackStats = {};
+      for (const key of stackKeys) {
+        const tracked = logs.filter(l => l[key] != null);
+        const taken = tracked.filter(l => l[key] === 1).length;
+        stackStats[stackLabels[key]] = tracked.length ? Math.round(taken / tracked.length * 100) : 0;
+      }
+    } catch { /* best effort */ }
+
+    // 5.5 — Day-of-week patterns
+    let dayOfWeekPatterns = null;
+    try {
+      const fourWeeks = db.getRecentLogs(28);
+      const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const buckets = DOW.map(() => []);
+      for (const l of fourWeeks) {
+        if (l.daily_score == null) continue;
+        const d = new Date(`${l.date}T00:00:00Z`);
+        buckets[d.getUTCDay()].push(l.daily_score);
+      }
+      dayOfWeekPatterns = DOW.map((name, i) => {
+        const arr = buckets[i];
+        const avg = arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : '?';
+        return `${name}: ${avg}`;
+      }).join(', ');
+    } catch { /* best effort */ }
+
+    try {
+      const coachingText = await generateWeeklyReview({ logs, breakLogs, avgMood, wearableContext, stackStats, dayOfWeekPatterns });
       db.insertWeeklyReview({
         week_start: getWeekStartLocal(),
         avg_score: parseFloat(avgScore),

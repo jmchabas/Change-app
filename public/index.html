@@ -135,6 +135,23 @@
     .chart-wrap { height: 180px; }
     .chart-wrap canvas { width: 100% !important; }
 
+    /* ── Calendar heatmap ── */
+    .heatmap-grid { display: flex; gap: 2px; overflow-x: auto; padding-bottom: 4px; }
+    .heatmap-col { display: flex; flex-direction: column; gap: 2px; }
+    .heatmap-cell {
+      width: 14px; height: 14px; border-radius: 2px;
+      cursor: default; position: relative;
+    }
+    .heatmap-cell[data-tip]:hover::after {
+      content: attr(data-tip);
+      position: absolute; bottom: 120%; left: 50%; transform: translateX(-50%);
+      background: #1e1e2e; color: #e0e0e0; font-size: .65rem; padding: 3px 6px;
+      border-radius: 4px; white-space: nowrap; z-index: 10; pointer-events: none;
+    }
+    .heatmap-label { font-size: .6rem; color: var(--muted); width: 14px; text-align: center; line-height: 14px; }
+    .heatmap-legend { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: .65rem; color: var(--muted); }
+    .heatmap-legend .swatch { width: 12px; height: 12px; border-radius: 2px; }
+
     /* ── Top misses ── */
     .miss-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; font-size: 0.8rem; }
     .miss-bar-bg { flex: 1; height: 6px; background: #1e1e2e; border-radius: 3px; overflow: hidden; }
@@ -321,9 +338,17 @@
         <div class="section-title">Today (${formatAxisDate(date || new Date().toISOString().slice(0, 10))})</div>
         <div class="today-top">
           ${score !== null
-            ? `<div class="big-num ${scoreColor(score)}">${score}<span class="denom">/100</span></div>`
+            ? `<div>
+                <div style="font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:.15rem">Execution</div>
+                <div class="big-num ${scoreColor(score)}">${score}<span class="denom">/100</span></div>
+              </div>`
             : `<div class="big-num" style="color:var(--muted)">—<span class="denom">/100</span></div>`}
-          ${mood ? `<div><div class="mood-badge mood-${Math.min(5, Math.ceil(mood / 2))}">Mood ${mood}/10 · ${moodLabel(mood)}</div></div>` : ''}
+          ${mood ? `<div>
+            <div style="font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:.15rem">Wellbeing</div>
+            <div class="mood-badge mood-${Math.min(5, Math.ceil(mood / 2))}" style="font-size:1.1rem;padding:.3rem .7rem;">
+              ${mood}/10 · ${moodLabel(mood)}
+            </div>
+          </div>` : ''}
         </div>
         ${targetsHtml}
         ${clusterHtml}
@@ -531,6 +556,57 @@
       </div>`;
     }
 
+    function pulseCard(pulseData) {
+      const today = pulseData?.today;
+      const recent = (pulseData?.recent || []).slice(0, 7);
+
+      if (!today && recent.length === 0) {
+        return `<div class="card">
+          <div class="section-title">Morning Pulse</div>
+          <p class="empty">No pulse data yet — it arrives with the morning brief on Telegram.</p>
+        </div>`;
+      }
+
+      const dims = [
+        { key: 'energy', label: '⚡ Energy', color: '#f59e0b' },
+        { key: 'clarity', label: '🧠 Clarity', color: '#8b5cf6' },
+        { key: 'intention', label: '🎯 Intention', color: '#22c55e' },
+      ];
+
+      let todayBlock = '';
+      if (today) {
+        const bars = dims.map(d => {
+          const val = today[d.key] ?? 0;
+          const pct = val * 20;
+          return `<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.3rem;">
+            <span style="font-size:.72rem;width:90px;color:var(--muted);">${d.label}</span>
+            <div style="flex:1;height:8px;background:#1e1e2e;border-radius:4px;overflow:hidden;">
+              <div style="width:${pct}%;height:100%;background:${d.color};border-radius:4px;"></div>
+            </div>
+            <span style="font-size:.75rem;font-weight:600;color:${d.color};width:24px;text-align:right;">${val}/5</span>
+          </div>`;
+        }).join('');
+        todayBlock = `<div style="margin-bottom:.6rem;">${bars}</div>`;
+      }
+
+      let trendBlock = '';
+      if (recent.length >= 3) {
+        const avgs = dims.map(d => {
+          const vals = recent.filter(r => r[d.key] != null).map(r => r[d.key]);
+          return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : '?';
+        });
+        trendBlock = `<div style="font-size:.72rem;color:var(--muted);margin-top:.3rem;">
+          7d avg: ${dims.map((d, i) => `${d.label.split(' ')[1]} ${avgs[i]}`).join(' · ')}
+        </div>`;
+      }
+
+      return `<div class="card">
+        <div class="section-title">Morning Pulse${today ? ' — today' : ''}</div>
+        ${todayBlock || '<p class="empty">Not filled yet today.</p>'}
+        ${trendBlock}
+      </div>`;
+    }
+
     function habitToPercent(v) {
       if (v === 1) return 100;
       if (v === 0) return 0;
@@ -581,12 +657,35 @@
       return habitToPercent(log[habit.key]);
     }
 
+    const weekendShadingPlugin = {
+      id: 'weekendShading',
+      beforeDraw(chart) {
+        const { ctx: c, chartArea, scales } = chart;
+        if (!chartArea || !scales.x) return;
+        const xScale = scales.x;
+        const labels = chart.data.labels || [];
+        c.save();
+        c.fillStyle = 'rgba(107,114,128,0.06)';
+        for (let i = 0; i < labels.length; i++) {
+          const label = labels[i];
+          const dayAbbr = typeof label === 'string' ? label.slice(0, 3) : '';
+          if (dayAbbr === 'Sat' || dayAbbr === 'Sun') {
+            const x = xScale.getPixelForValue(i);
+            const halfStep = (xScale.width / Math.max(labels.length - 1, 1)) / 2;
+            c.fillRect(x - halfStep, chartArea.top, halfStep * 2, chartArea.bottom - chartArea.top);
+          }
+        }
+        c.restore();
+      },
+    };
+
     let dayScoreChart = null;
     let moodChart = null;
     let rhrChart = null;
     let sleepChart = null;
     let stackTrendChart = null;
     const habitCharts = {};
+    let allLogsCache = [];
 
     function renderDayScoreChart(logs) {
       const ctx = document.getElementById('day-score-chart');
@@ -600,19 +699,30 @@
         type: 'line',
         data: {
           labels,
-          datasets: [{
-            label: 'Day score',
-            data: scores,
-            borderColor: '#3b82f6',
-            backgroundColor: '#3b82f615',
-            fill: true,
-            tension: 0.35,
-            pointBackgroundColor: scores.map(s =>
-              s === null ? 'transparent' : s >= 80 ? '#22c55e' : s >= 60 ? '#f59e0b' : '#ef4444'),
-            pointRadius: 5,
-            pointHoverRadius: 7,
-            spanGaps: true,
-          }],
+          datasets: [
+            {
+              label: 'Execution',
+              data: scores,
+              borderColor: '#3b82f6',
+              backgroundColor: '#3b82f615',
+              fill: true,
+              tension: 0.35,
+              pointBackgroundColor: scores.map(s =>
+                s === null ? 'transparent' : s >= 80 ? '#22c55e' : s >= 60 ? '#f59e0b' : '#ef4444'),
+              pointRadius: 5,
+              pointHoverRadius: 7,
+              spanGaps: true,
+            },
+            {
+              label: 'Green zone (80)',
+              data: labels.map(() => 80),
+              borderColor: '#22c55e55',
+              borderDash: [6, 4],
+              pointRadius: 0,
+              borderWidth: 1,
+              fill: false,
+            },
+          ],
         },
         options: {
           responsive: true,
@@ -622,7 +732,23 @@
               display: true,
               labels: { color: '#6b7280', font: { size: 10 }, boxWidth: 12 },
             },
-            tooltip: {},
+            tooltip: {
+              callbacks: {
+                afterBody(items) {
+                  const idx = items[0]?.dataIndex;
+                  if (idx == null || !days[idx]) return '';
+                  const l = days[idx];
+                  const yn = v => v === 1 ? '✓' : v === 0 ? '✗' : '–';
+                  return [
+                    `Mood: ${l.mood_1_10 ?? '?'}/10`,
+                    `Focus ${yn(l.no_escape_media)} · Eating ${yn(l.fixed_eating)} · Clean Eve ${yn(l.clean_evening)}`,
+                    `Work ${yn(l.work_win)} · Perso ${yn(l.personal_win)} · Gym ${yn(l.gym)}`,
+                    `Kids ${yn(l.kids_quality)} · Bed ${yn(l.bed_on_time)}`,
+                    l.bed_time_text ? `Bed: ${l.bed_time_text}` : '',
+                  ].filter(Boolean).join('\n');
+                },
+              },
+            },
           },
           scales: {
             y: {
@@ -636,6 +762,7 @@
             },
           },
         },
+        plugins: [weekendShadingPlugin],
       });
     }
 
@@ -681,6 +808,7 @@
             },
           },
         },
+        plugins: [weekendShadingPlugin],
       });
     }
 
@@ -719,7 +847,7 @@
             legend: { display: true, labels: { color: '#6b7280', font: { size: 10 }, boxWidth: 12 } },
             tooltip: {
               callbacks: {
-                label: (ctx) => `Resting HR: ${ctx.raw ?? '?'} bpm`,
+                label: (tipCtx) => `Resting HR: ${tipCtx.raw ?? '?'} bpm`,
               },
             },
           },
@@ -746,6 +874,7 @@
             },
           },
         },
+        plugins: [weekendShadingPlugin],
       });
     }
 
@@ -801,11 +930,23 @@
             {
               label: 'Goal (8h)',
               data: labels.map(() => 8),
-              borderColor: '#3b82f6',
+              borderColor: '#3b82f655',
               backgroundColor: 'transparent',
               borderDash: [6, 4],
               pointRadius: 0,
+              borderWidth: 1,
               yAxisID: 'yHours',
+              spanGaps: true,
+            },
+            {
+              label: 'Score 80',
+              data: labels.map(() => 80),
+              borderColor: '#22c55e55',
+              backgroundColor: 'transparent',
+              borderDash: [6, 4],
+              pointRadius: 0,
+              borderWidth: 1,
+              yAxisID: 'yScore',
               spanGaps: true,
             },
           ],
@@ -857,6 +998,7 @@
             },
           },
         },
+        plugins: [weekendShadingPlugin],
       });
     }
 
@@ -872,78 +1014,154 @@
       </div>`;
     }
 
-    function habitTrendCards() {
-      return TREND_HABITS.map((h) => `
-        <div class="card chart-wrap" style="height:220px">
-          <div class="section-title">${h.label} Trend</div>
-          <div style="height:180px"><canvas id="habit-trend-${h.key}"></canvas></div>
-        </div>
-      `).join('');
-    }
+    let consolidatedHabitChart = null;
 
-    function renderHabitTrendCharts(logs) {
-      if (!logs || logs.length === 0) return;
+    function renderConsolidatedHabitChart(logs) {
+      const ctx = document.getElementById('consolidated-habit-chart');
+      if (!ctx || !logs || logs.length === 0) return;
       const days = [...logs];
       const labels = days.map(l => formatAxisDate(l.date));
       const colors = ['#22c55e','#f59e0b','#3b82f6','#ef4444','#a855f7','#06b6d4','#84cc16','#eab308'];
 
-      TREND_HABITS.forEach((habit, idx) => {
-        const canvasId = `habit-trend-${habit.key}`;
-        const ctx = document.getElementById(canvasId);
-        if (!ctx) return;
-        if (habitCharts[habit.key]) habitCharts[habit.key].destroy();
-
-        habitCharts[habit.key] = new Chart(ctx, {
-          type: 'line',
-          data: {
-            labels,
-            datasets: [{
-              label: habit.label,
-              data: days.map(l => trendValueForHabit(l, habit)),
-              borderColor: colors[idx % colors.length],
-              backgroundColor: `${colors[idx % colors.length]}22`,
-              fill: true,
-              tension: 0.25,
-              pointRadius: 2,
-              spanGaps: true,
-            }],
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { display: true, labels: { color: '#6b7280', font: { size: 10 }, boxWidth: 10 } },
-              tooltip: {
-                callbacks: {
-                  label: (ctx) => {
-                    if (ctx.raw == null) return `${ctx.dataset.label}: no data`;
-                    if (habit.type === 'detailed') {
-                      return `${ctx.dataset.label}: ${(ctx.raw / 10).toFixed(1)}/10`;
-                    }
-                    return `${ctx.dataset.label}: ${ctx.raw === 100 ? '✓ pass' : '✗ miss'}`;
-                  },
+      if (consolidatedHabitChart) consolidatedHabitChart.destroy();
+      consolidatedHabitChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: TREND_HABITS.map((habit, idx) => ({
+            label: habit.label,
+            data: days.map(l => trendValueForHabit(l, habit)),
+            borderColor: colors[idx % colors.length],
+            backgroundColor: 'transparent',
+            tension: 0.25,
+            pointRadius: 2,
+            borderWidth: 2,
+            spanGaps: true,
+          })),
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: true,
+              labels: { color: '#6b7280', font: { size: 10 }, boxWidth: 10, padding: 8 },
+            },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: (tipCtx) => {
+                  const habit = TREND_HABITS[tipCtx.datasetIndex];
+                  if (tipCtx.raw == null) return `${tipCtx.dataset.label}: no data`;
+                  if (habit?.type === 'detailed') return `${tipCtx.dataset.label}: ${(tipCtx.raw / 10).toFixed(1)}/10`;
+                  return `${tipCtx.dataset.label}: ${tipCtx.raw === 100 ? '✓' : '✗'}`;
                 },
               },
             },
-            scales: {
-              y: {
-                min: 0, max: 100,
-                ticks: {
-                  stepSize: habit.type === 'detailed' ? 20 : 100,
-                  color: '#6b7280',
-                  callback: (v) => (habit.type === 'detailed' ? `${v}` : (v === 100 ? 'Pass' : 'Miss')),
-                  font: { size: 10 },
-                },
-                grid: { color: '#1e1e2e' },
-              },
-              x: {
-                ticks: { color: '#6b7280', font: { size: 10 }, maxRotation: 0, minRotation: 0 },
-                grid: { display: false },
-              },
+          },
+          scales: {
+            y: {
+              min: 0, max: 100,
+              ticks: { stepSize: 20, color: '#6b7280', font: { size: 10 } },
+              grid: { color: '#1e1e2e' },
+            },
+            x: {
+              ticks: { color: '#6b7280', font: { size: 10 }, maxRotation: 0, minRotation: 0 },
+              grid: { display: false },
             },
           },
-        });
+        },
+        plugins: [weekendShadingPlugin],
       });
+    }
+
+    function calendarHeatmapCard(allLogs) {
+      if (!allLogs || allLogs.length === 0) return '';
+      const scoreMap = {};
+      for (const l of allLogs) {
+        if (l.daily_score != null) scoreMap[l.date] = l.daily_score;
+      }
+      const sorted = Object.keys(scoreMap).sort();
+      if (sorted.length === 0) return '';
+
+      const latest = toDate(sorted[sorted.length - 1]);
+      const weeks = Math.min(Math.ceil(sorted.length / 7) + 1, 16);
+      const start = new Date(latest);
+      start.setUTCDate(start.getUTCDate() - (weeks * 7 - 1));
+      while (start.getUTCDay() !== 0) start.setUTCDate(start.getUTCDate() - 1);
+
+      function heatColor(score) {
+        if (score == null) return '#1e1e2e';
+        if (score >= 80) return '#166534';
+        if (score >= 60) return '#854d0e';
+        return '#991b1b';
+      }
+
+      const DOW = ['S','M','T','W','T','F','S'];
+      let cols = '';
+      const cursor = new Date(start);
+
+      while (cursor <= latest) {
+        let col = '';
+        for (let dow = 0; dow < 7; dow++) {
+          const ds = cursor.toISOString().slice(0, 10);
+          const score = scoreMap[ds];
+          const tip = score != null ? `${ds}: exec ${score}/100` : ds;
+          col += `<div class="heatmap-cell" style="background:${heatColor(score)}" data-tip="${tip}"></div>`;
+          cursor.setUTCDate(cursor.getUTCDate() + 1);
+        }
+        cols += `<div class="heatmap-col">${col}</div>`;
+      }
+
+      const legend = `<div class="heatmap-legend">
+        <span>Less</span>
+        <div class="swatch" style="background:#991b1b"></div>
+        <div class="swatch" style="background:#854d0e"></div>
+        <div class="swatch" style="background:#166534"></div>
+        <span>More</span>
+      </div>`;
+
+      const dayLabels = DOW.map(d => `<div class="heatmap-label">${d}</div>`).join('');
+
+      return `<div class="card">
+        <div class="section-title">Score Heatmap</div>
+        <div style="display:flex;gap:2px;">
+          <div class="heatmap-col">${dayLabels}</div>
+          <div class="heatmap-grid">${cols}</div>
+        </div>
+        ${legend}
+      </div>`;
+    }
+
+    function correlationsCard(correlations) {
+      if (!correlations || correlations.length === 0) {
+        return `<div class="card">
+          <div class="section-title">Correlations</div>
+          <p class="empty">Not enough data yet (need 7+ days).</p>
+        </div>`;
+      }
+      const rows = correlations.slice(0, 8).map(c => {
+        if (c.type === 'binary') {
+          const sign = c.delta >= 0 ? '+' : '';
+          const color = c.delta >= 0 ? 'var(--green)' : 'var(--red)';
+          return `<div style="display:flex;justify-content:space-between;padding:.3rem 0;font-size:.78rem;border-bottom:1px solid var(--border);">
+            <span class="muted">${esc(c.pair)}</span>
+            <span style="color:${color};font-weight:600;">${sign}${c.delta} avg</span>
+          </div>`;
+        } else {
+          const r = c.r;
+          const color = r > 0 ? 'var(--green)' : 'var(--red)';
+          return `<div style="display:flex;justify-content:space-between;padding:.3rem 0;font-size:.78rem;border-bottom:1px solid var(--border);">
+            <span class="muted">${esc(c.pair)}</span>
+            <span style="color:${color};font-weight:600;">r = ${r > 0 ? '+' : ''}${r} (n=${c.n})</span>
+          </div>`;
+        }
+      }).join('');
+      return `<div class="card">
+        <div class="section-title">Correlations (90-day)</div>
+        ${rows}
+      </div>`;
     }
 
     function renderStackTrendChart(logs) {
@@ -956,6 +1174,7 @@
       if (stackTrendChart) stackTrendChart.destroy();
       stackTrendChart = new Chart(ctx, {
         type: 'line',
+        plugins: [weekendShadingPlugin],
         data: {
           labels,
           datasets: STACK_ITEMS.map((item, idx) => ({
@@ -1028,7 +1247,7 @@
           return;
         }
         const todayRes = await authCheck.json();
-        const [weekRes, histRes, reviewsRes, breaksRes, integrationsRes, latestLinkRes, wearablesHistRes] = await Promise.all([
+        const [weekRes, histRes, reviewsRes, breaksRes, integrationsRes, latestLinkRes, wearablesHistRes, correlationsRes, pulseRes] = await Promise.all([
           fetch('/api/week').then(r => r.json()),
           fetch('/api/history').then(r => r.json()),
           fetch('/api/reviews').then(r => r.json()),
@@ -1036,6 +1255,8 @@
           fetch('/api/integrations').then(r => r.json()),
           fetch('/api/checkin/latest-link').then(r => r.json()),
           safeJsonFetch('/api/wearables/history?days=90', { wearables: [] }),
+          safeJsonFetch('/api/correlations', { correlations: [] }),
+          safeJsonFetch('/api/pulse', { today: null, recent: [] }),
         ]);
 
         const { log, targets, wearable, date } = todayRes;
@@ -1064,7 +1285,7 @@
 
         document.getElementById('header-date').textContent = formatHeaderDate(date);
         document.getElementById('refresh-hint').textContent =
-          `Avg monthly - Day score: ${avgMonthlyScore} . Mood: ${avgMonthlyMood} . RHR: ${avgMonthlyRhr}${fitbit?.connected ? ' . Fitbit: on' : ''}`;
+          `Avg monthly - Exec: ${avgMonthlyScore} . Mood: ${avgMonthlyMood} . RHR: ${avgMonthlyRhr}${fitbit?.connected ? ' . Fitbit: on' : ''}`;
 
         const selectedRange = window.__trendRange || 'week';
         const rangedLogs = getFilteredByRange(allLogs, selectedRange);
@@ -1078,7 +1299,7 @@
           <div class="section">
             <div class="grid-2">
               <div class="card chart-wrap" style="height:220px">
-                <div class="section-title">Day score</div>
+                <div class="section-title">Execution Score</div>
                 <div style="height:180px"><canvas id="day-score-chart"></canvas></div>
               </div>
               <div class="card chart-wrap" style="height:220px">
@@ -1102,9 +1323,10 @@
           </div>
 
           <div class="section">
-            <div class="grid-2">
+            <div class="grid-3">
               ${todayCard(log, targets, date)}
               ${wearablesCard(wearable, wearables)}
+              ${pulseCard(pulseRes)}
             </div>
           </div>
 
@@ -1116,9 +1338,9 @@
           </div>
 
           <div class="section">
-            <div class="section-title">Habit Trend Lines</div>
-            <div class="grid-2">
-              ${habitTrendCards()}
+            <div class="card chart-wrap" style="height:320px">
+              <div class="section-title">Habit Consistency</div>
+              <div style="height:280px"><canvas id="consolidated-habit-chart"></canvas></div>
             </div>
           </div>
 
@@ -1126,6 +1348,13 @@
             <div class="card chart-wrap" style="height:280px">
               <div class="section-title">Daily Stack Tracking</div>
               <div style="height:240px"><canvas id="stack-trend-chart"></canvas></div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="grid-2">
+              ${calendarHeatmapCard(allLogs)}
+              ${correlationsCard(correlationsRes.correlations)}
             </div>
           </div>
 
@@ -1151,11 +1380,12 @@
 
         `;
 
+        allLogsCache = allLogs;
         renderDayScoreChart(rangedLogs);
         renderMoodChart(rangedLogs);
         renderRhrChart(rangedWearables);
         renderSleepChart(rangedWearables);
-        renderHabitTrendCharts(rangedLogs);
+        renderConsolidatedHabitChart(rangedLogs);
         renderStackTrendChart(rangedLogs);
         bindActionButtons();
         const rangeSelect = document.getElementById('trend-range-select');

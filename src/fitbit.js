@@ -298,7 +298,7 @@ export async function handleFitbitCallback({ code, state, baseUrl }) {
   });
 
   saveTokens(tokenPayload);
-  db.setSetting('fitbit_oauth_state', '');
+  db.deleteSetting('fitbit_oauth_state');
   db.setSetting('fitbit_last_sync_error', '');
 
   // Immediately backfill after (re)connect so dashboard is populated.

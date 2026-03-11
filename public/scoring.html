@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LifeOS Scoring Guide</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <style>
+    :root {
+      --bg: #0b0f1a;
+      --card: #121a2b;
+      --line: #26324a;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --blue: #3b82f6;
+      --green: #22c55e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 20px;
+    }
+    .wrap { max-width: 880px; margin: 0 auto; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 18px;
+      margin-bottom: 14px;
+    }
+    h1, h2 { margin: 0 0 10px; }
+    h2 { font-size: 18px; color: var(--blue); }
+    p, li { line-height: 1.5; }
+    ul { margin: 10px 0 0 20px; }
+    .muted { color: var(--muted); }
+    .pill {
+      display: inline-block;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 10px;
+      margin-right: 6px;
+      margin-bottom: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    a { color: var(--blue); text-decoration: none; }
+    .ok { color: var(--green); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>LifeOS Scoring Guide</h1>
+      <p class="muted">How your execution score is calculated (0-100). Mood is tracked separately.</p>
+      <div style="margin-top:8px">
+        <span class="pill">Weekday: fixed denominator</span>
+        <span class="pill">Weekend: optional fields are dynamic</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Weekdays (Mon-Fri)</h2>
+      <p><strong>Execution score</strong> = (<strong>behavior points</strong> / 80) × 100</p>
+      <ul>
+        <li>Behavior points: up to 80 across Focus, Eating, Clean Eve, Work, Personal, Gym, Kids, Bedtime (10 each).</li>
+        <li>Mood is tracked separately (1-10) and not included in the execution score.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Weekends (Sat-Sun)</h2>
+      <p>Work win, Personal win, and Bedtime are optional.</p>
+      <p><strong>Execution score</strong> = (<strong>behavior points</strong> / <strong>active behavior points</strong>) × 100</p>
+      <ul>
+        <li>Active behavior points = 50 (5 required habits) + optional habits that are filled.</li>
+        <li>Blank or invalid optional inputs are excluded from the denominator.</li>
+      </ul>
+      <p class="ok">This keeps weekends fair while still rewarding optional completions.</p>
+    </div>
+
+    <div class="card">
+      <h2>Scoring Bands</h2>
+      <p><strong>Overall daily score bands</strong></p>
+      <ul>
+        <li><strong>80-100</strong>: strong day (green zone)</li>
+        <li><strong>60-79</strong>: mixed day (amber zone)</li>
+        <li><strong>0-59</strong>: recovery needed (red zone)</li>
+      </ul>
+      <p style="margin-top:12px;"><strong>Metric-level bands</strong></p>
+      <ul>
+        <li><strong>Escape media minutes</strong>: 0m = 10, <=15m = 8, <=30m = 6, <=60m = 3, >60m = 0</li>
+        <li><strong>Meals outside window</strong>: 0 = 10, 1 = 6, 2 = 3, >=3 = 0</li>
+        <li><strong>Bedtime (target 9:30pm)</strong>: on/before = 10, <=30m late = 8, <=60m late = 5, <=90m late = 2, later = 0</li>
+        <li><strong>Mood</strong>: 1-10, tracked as a separate wellbeing metric (not in execution score)</li>
+        <li><strong>Binary habits</strong> (Clean Eve, Work, Personal, Gym, Kids): Yes = 10, No = 0</li>
+        <li><strong>Sleep card colors</strong>: Sleep (green >= 7h, amber >= 6h, red < 6h) · Sleep score (green >= 80, amber >= 65, red < 65)</li>
+      </ul>
+      <p style="margin-top:12px;"><strong>How ✓ / ✗ are computed in habit charts and grid</strong></p>
+      <ul>
+        <li><strong>Focus</strong>: ✓ when focus points are >= 6, else ✗</li>
+        <li><strong>Eating</strong>: ✓ when eating points are >= 6, else ✗</li>
+        <li><strong>Bed</strong>: ✓ when bedtime points are >= 8, else ✗</li>
+        <li>All other habit rows are direct Yes/No values from your check-in.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Notes</h2>
+      <ul>
+        <li>Bedtime target is 9:30pm.</li>
+        <li>Form values are persisted even when weekend optional fields are left blank.</li>
+        <li>Trend arrows in the morning brief compare vs previous day.</li>
+      </ul>
+      <p style="margin-top:12px"><a href="/">Back to dashboard</a></p>
+    </div>
+  </div>
+</body>
+</html>
